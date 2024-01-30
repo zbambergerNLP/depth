@@ -1,0 +1,210 @@
+defaults:
+  - _self_
+
+# Experiment args
+
+# The category of experiment to run. Options are 'pt' (for pre-training) and 'ft' (for fine-tuning)
+mode: 'pt'
+
+# The device used for training. Options are 'cpu' and 'gpu'.
+device: gpu
+
+# The number of GPUs to use for training. If using 'cpu', this value is ignored.
+num_gpus: 8
+
+# The number of CPUs to use for training.
+num_cpus: 64
+
+# The numerical precision to use for training. Options are 'fp32', 'fp16', and 'bf16'.
+# NOTE: 'fp16' is not stable for training, and not all GPUs support 'bf16'.
+precision: 'bf16'
+
+# Whether to use a model strictly for evaluation over the provided dataset.
+eval_only: false
+
+# Whether to use a model strictly for prediction over the provided dataset.
+predict_only: false
+
+# The seed used for random initialization, corruption, shuffling, and other random operations during training.
+seed: 2137
+
+
+model:
+
+  # The model implementation to use. Options are 'local_t5', 'hf_t5', and 'depth'
+  model_implementation: local_t5
+
+  # The name of the model (e.g. 'google/t5-v1_1-base'). Used to retrieve the corresponding model and config from
+  # HuggingFace
+  name: 'google/t5-v1_1-base'
+
+  # The name of the tokenizer (e.g. 'google/t5-v1_1-base'). Used to retrieve the corresponding tokenizer from
+    # HuggingFace
+  tokenizer: 'google/t5-v1_1-base'
+
+  # Use 'overwrite' to overwrite any config options in the model config. For example, the default T5 model config
+  # has a non-zero dropout rate (specifically, the default value is 0.1), but we can explicitly set it to 0.0 here.
+  overwrite:
+    # Dropout rate to use in the model. If 0.0, dropout is disabled. If > 0.0, dropout is enabled.
+    dropout_rate: 0.0
+
+  # Use 'add_config' to add any additional config options to the model. For example, the default T5 model config
+  # does not have a 'is_bf16' option, but we can add it here.
+  add_config:
+    # If true, the model will be trained with mixed precision. Otherwise, it will be trained with FP32.
+    is_bf16: true
+
+  # The path to the checkpoint to load. If empty, the model will retrieve the checkpoint from HuggingFace
+  checkpoint_path: ''
+
+  # If true, the model will be randomly initialized. Otherwise, it will be initialized from the checkpoint
+  random_init: true
+
+  # If true, optimize distributed training for the model with torch 2.0's new 'compile' feature.
+  # NOTE: this option makes training generally faster, but has a few-minute overhead at the beginning of training.
+  compile: true # Pytorch 2.0
+
+dataset:
+
+  # The name of the dataset to use. These correspond with the datasets available in the HuggingFace datasets library.
+  # Examples include C4, The Pile, etc...
+  path: 'c4'
+
+  # The partition of the dataset to use. For example, if using the C4 dataset, we may want to specify the 'en' partition
+  # to only use the English portion of the dataset.
+  name: 'en'
+
+  # Whether to stream the dataset or not. If true, the dataset will be streamed from disk. If false, the dataset will
+  streaming: true
+
+  # Whether to merge examples or not. If true, dataset examples that are shorter than the model's max input length will
+  # be merged together until they are longer than the model's max input length. If false, each example from the
+  # dataset will be used as-is when fed into the model.
+  merge_examples: false
+
+  # The names of the columns to remove from the dataset. For example, if using the C4 dataset, we want to remove
+  # the 'timestamp' and 'url' columns, as they are not relevant to the pre-training task.
+  columns_to_remove: ['timestamp', 'url']
+
+  # The name of the column to use as the input text. For example, if using the C4 dataset, we want to use the 'text'
+  text_column: 'text'
+
+  # TODO: Provide description of the 'buffer_size' flag
+  buffer_size: 10_000
+
+  # The number of shards (i.e. files) to use for the dataset. For example, if using the C4 dataset, it is recommended
+  # to break up the massive dataset into (for example) 1,024 shards.
+  num_shards: 1_024
+
+    # The number of examples to use for the training set.
+  training_set:
+    num_examples: 2_210_000
+
+  # The number of examples to use for the validation set.
+  validation_set:
+    num_examples: -1
+
+data:
+
+  # The maximum length of the input text. If the input text is longer than this value, it will be truncated.
+  input_length: 512
+
+  # Target length of the output text. If the output text is longer than this value, it will be truncated.
+  target_length: 512
+
+  # The probability of masking a token in the input text. For example, if set to 0.15, 15% of the tokens in the input
+  # text will be masked.
+  mlm_probability: 0.3
+
+  # The average span length of the noise span. For example, if set to 3.0, the average noise span will be 3 tokens long.
+  mean_noise_span_length: 3.0
+
+  # The number of CPU processes to use for data preprocessing
+  num_workers: 16
+
+  # The type of data collator to use. Options are 'custom_t5', 'depth', and 'basic'
+  data_collator: 'custom_t5'
+
+optim:
+
+  # The optimizer to use. Options are 'adamw', 'adamwscale', and 'adafactor'
+  name: adamwscale
+
+  # The initial learning rate to use for the optimizer (not including warmup).
+  base_lr: 2e-2
+
+  # The size of the batch to use for training. The model will only perform a step after this many examples have been
+  # processed.
+  batch_size: 128
+
+  # The total number of steps to train for.
+  total_steps: 65_536
+
+  # The number of epochs to train for. If this value is > 0, it will overwrite the 'total_steps' value.
+  epochs: -1
+
+  # The number of warmup steps to use for the optimizer.
+  warmup_steps: 10_000
+
+  # The learning rate scheduler to use. Options are 'linear', 'cosine', 'legacy', and 'constant'
+  lr_scheduler: cosine
+
+  # The weight decay to use for the optimizer.
+  weight_decay: 0.0
+
+  # The gradient clipping value to use for the optimizer. If 0.0, gradient clipping is disabled.
+  grad_clip: 1.0
+
+  # The number of gradient accumulation steps to use for the optimizer. If 1, gradient accumulation is disabled.
+  # NOTE: Increase this value if you get OOM errors at the expense of additional training time.
+  grad_acc: 2
+
+  # TODO: Describe this flag
+  final_cosine: 1e-5
+
+evaluate:
+  # The number of steps to wait between evaluations.
+  every_steps: 10_000
+
+  # The number of steps to use for evaluation (i.e., steps x batch_size = number of examples to evaluate).
+  steps: 500
+
+checkpoint:
+  # The number of steps to wait between checkpoints.
+  every_steps: 10_000
+
+  # The directory to save checkpoints to.
+  output_dir: 'checkpoints/'
+
+logging:
+
+  # The number of steps to wait between logging.
+  every_steps: 100
+
+  # TODO: Describe this flag
+  grad_l2: true
+
+  # TODO: Describe this flag
+  weights_l2: true
+
+  # Weight and Biases
+  wandb: false
+  wandb_creds:
+    project: 'principled-pre-training'
+
+  # Neptune
+  neptune: false
+  neptune_creds:
+    project: 'principled-pre-training'
+
+  # TODO: Tensorboard, Comet, MLFlow, etc...
+
+# TODO: Investigate whether using these flags makes training faster
+deepspeed:
+
+  # Whether to use DeepSpeed or not.
+  use_deepspeed: false
+
+  # The path to the DeepSpeed config file to use.
+  deepspeed_config_path: zero_stage_2_config.json
+
