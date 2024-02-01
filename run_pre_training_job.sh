@@ -44,32 +44,57 @@ data.data_collator=custom_t5 \
 data.num_workers=32 \
 optim.total_steps=100_000 \
 optim.lr_scheduler=constant \
+optim.name=adamw_torch \
 optim.base_lr=1e-4 \
 optim.batch_size=128 \
 optim.grad_acc=2
 
-# Debug:
-#deepspeed \
-#--no_local_rank \
-#--master_port=12345 \
-#--num_gpus=2 \
-#pre_train_encoder_decoder.py \
-#num_gpus=2 \
-#num_cpus=8 \
-#model.model_implementation=hf_t5 \
-#model.compile=false \
-#dataset.validation_set.num_examples=500 \
-#dataset.train_set.num_examples=10_000 \
-#logging.every_steps=20 \
-#evaluate.every_steps=20 \
-#checkpoint.every_steps=60 \
-#data.data_collator=custom_t5 \
-#data.num_workers=4 \
-#optim.total_steps=50_000 \
-#optim.lr_scheduler=constant \
-#optim.base_lr=1e-4 \
-#optim.batch_size=32 \
-#optim.grad_acc=1
+# Debug with deepspeed:
+deepspeed \
+--no_local_rank \
+--master_port=12345 \
+--num_gpus=2 \
+pre_train_encoder_decoder.py \
+num_gpus=2 \
+num_cpus=8 \
+model.model_implementation=hf_t5 \
+model.compile=false \
+deepspeed.use_deepspeed=false \
+dataset.validation_set.num_examples=500 \
+logging.every_steps=20 \
+evaluate.every_steps=20 \
+checkpoint.every_steps=60 \
+data.data_collator=custom_t5 \
+data.num_workers=4 \
+optim.total_steps=50_000 \
+optim.lr_scheduler=constant \
+optim.name=adamw_torch \
+optim.base_lr=1e-4 \
+optim.batch_size=32 \
+optim.grad_acc=1
+
+# Debug with accelerate
+accelerate launch \
+--config_file ./accelerate_configs/accelerate_2_gpus_ada.yaml \
+pre_train_encoder_decoder.py \
+num_gpus=2 \
+num_cpus=8 \
+model.model_implementation=hf_t5 \
+model.compile=false \
+deepspeed.use_deepspeed=false \
+dataset.validation_set.num_examples=500 \
+logging.every_steps=20 \
+evaluate.every_steps=20 \
+checkpoint.every_steps=60 \
+data.data_collator=custom_t5 \
+data.num_workers=4 \
+optim.total_steps=50_000 \
+optim.lr_scheduler=constant \
+optim.name=adamw_torch \
+optim.base_lr=1e-4 \
+optim.batch_size=32 \
+optim.grad_acc=1
+
 
 
 ###################
@@ -100,26 +125,72 @@ optim.base_lr=1e-4 \
 optim.batch_size=128 \
 optim.grad_acc=2
 
-# Debug
-#deepspeed \
-#--no_local_rank \
-#--master_port=12345 \
-#--num_gpus=4 \
-#pre_train_encoder_decoder.py \
-#num_gpus=4 \
-#num_cpus=32 \
-#model.compile=false \
-#model.random_init=false \
-#model.model_implementation=depth \
-#dataset.validation_set.num_examples=500 \
-#logging.every_steps=20 \
-#evaluate.every_steps=20 \
-#checkpoint.every_steps=60 \
-#data.data_collator=depth \
-#data.num_workers=4 \
-#optim.name=adamw_hf \
-#optim.total_steps=100_000 \
-#optim.lr_scheduler=constant \
-#optim.base_lr=1e-4 \
-#optim.batch_size=128 \
-#optim.grad_acc=2
+# Debug with deepspeed:
+deepspeed \
+--no_local_rank \
+--master_port=12345 \
+--num_gpus=4 \
+pre_train_encoder_decoder.py \
+num_gpus=4 \
+num_cpus=32 \
+deepspeed.use_deepspeed=true \
+model.compile=false \
+model.random_init=false \
+model.model_implementation=depth \
+dataset.validation_set.num_examples=500 \
+logging.every_steps=20 \
+evaluate.every_steps=20 \
+checkpoint.every_steps=60 \
+data.data_collator=depth \
+data.num_workers=8 \
+optim.name=adamw_torch \
+optim.total_steps=100_000 \
+optim.lr_scheduler=constant \
+optim.base_lr=1e-4 \
+optim.batch_size=128 \
+optim.grad_acc=2
+
+# Debug with accelerate
+accelerate launch \
+--config_file ./accelerate_configs/accelerate_2_gpus_ada.yaml \
+pre_train_encoder_decoder.py \
+num_gpus=2 \
+num_cpus=8 \
+model.model_implementation=depth \
+model.random_init=false \
+model.compile=false \
+deepspeed.use_deepspeed=false \
+dataset.validation_set.num_examples=500 \
+logging.every_steps=20 \
+evaluate.every_steps=20 \
+checkpoint.every_steps=60 \
+data.data_collator=depth \
+data.num_workers=4 \
+optim.total_steps=50_000 \
+optim.lr_scheduler=constant \
+optim.name=adamw_torch \
+optim.base_lr=1e-4 \
+optim.batch_size=32 \
+optim.grad_acc=1
+
+accelerate launch \
+--config_file ./accelerate_configs/accelerate_4_gpus.yaml \
+pre_train_encoder_decoder.py \
+num_gpus=4 \
+num_cpus=8 \
+model.model_implementation=depth \
+model.random_init=false \
+model.compile=false \
+deepspeed.use_deepspeed=false \
+dataset.validation_set.num_examples=500 \
+logging.every_steps=20 \
+evaluate.every_steps=20 \
+checkpoint.every_steps=60 \
+data.data_collator=depth \
+data.num_workers=4 \
+optim.total_steps=50_000 \
+optim.lr_scheduler=constant \
+optim.name=adamw_torch \
+optim.base_lr=1e-4 \
+optim.batch_size=32 \
+optim.grad_acc=1

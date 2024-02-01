@@ -125,6 +125,10 @@ data:
   # The type of data collator to use. Options are 'custom_t5', 'depth', and 'basic'
   data_collator: 'custom_t5'
 
+  # The probability of shuffling sentences in each example within the batch. For example, if set to 0.5, 50% of the
+  # batches will have their examples' sentences shuffled.
+  sentence_shuffling_probability: 0.5
+
 optim:
 
   # The optimizer to use.

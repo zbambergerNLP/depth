@@ -61,6 +61,8 @@ class Optimizer(enum.Enum):
     ADAMW: str = 'adamw'
     ADAMWSCALE: str = 'adamwscale'
     ADAFACTOR: str = 'adafactor'
+    ADAMW_HF: str = 'adamw_hf'
+    ADAMW_TORCH: str = 'adamw_torch'
 
 
 class Scheduler(enum.Enum):
@@ -132,6 +134,8 @@ class DepthMetric(enum.Enum):
     VARIANCE_LOSS_ON_SENTENCE_TOKENS: str = 'variance_loss_on_sentence_tokens'
     AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'average_loss_on_non_sentence_tokens'
     VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'variance_loss_on_non_sentence_tokens'
+    SENTENCE_ACCURACY: str = 'sentence_accuracy'
+    RECONSTRUCTION_ACCURACY: str = 'reconstruction_accuracy'
 
 
 @dataclasses.dataclass

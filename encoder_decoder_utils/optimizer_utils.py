@@ -274,7 +274,7 @@ def get_optimizer(
         },
     ]
 
-    if args.optim.name == Optimizer.ADAMW.value:
+    if args.optim.name in [Optimizer.ADAMW.value, Optimizer.ADAMW_HF.value, Optimizer.ADAMW_TORCH.value]:
         logger.log_message('Using AdamW optimizer')
         optimizer = transformers.AdamW(
             optimizer_grouped_parameters,

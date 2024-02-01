@@ -120,9 +120,9 @@ def main(dict_config: omegaconf.DictConfig):
 
         # Optimizer
         learning_rate=dict_config.optim.base_lr if dict_config.deepspeed.use_deepspeed else None,
-        optim=dict_config.optim.name if dict_config.deepspeed.use_deepspeed else None,
-        lr_scheduler_type=dict_config.optim.lr_scheduler if dict_config.deepspeed.use_deepspeed else None,
-
+        optim=dict_config.optim.name,
+        # lr_scheduler_type=dict_config.optim.lr_scheduler if dict_config.deepspeed.use_deepspeed else lr_scheduler,
+        lr_scheduler_type=dict_config.optim.lr_scheduler,
 
         # Logging
         report_to=report_to,
@@ -152,48 +152,22 @@ def main(dict_config: omegaconf.DictConfig):
         torch_compile=dict_config.model.compile,
         sortish_sampler=True,
         dataloader_num_workers=dict_config.data.num_workers,
-        dataloader_persistent_workers=True if dict_config.data.num_workers > 0 else False,
         dataloader_pin_memory=True,
         deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,
-        auto_find_batch_size=dict_config.optim.auto_find_batch_size,  # TODO: Consider removing this.
+        # auto_find_batch_size=dict_config.optim.auto_find_batch_size,  # TODO: Consider removing this.
         # deepspeed=str(dict_config.deepspeed.deepspeed_config_path) if dict_config.deepspeed.use_deepspeed else None,
     )
 
-    # TODO: Add metrics specifically for DEPTH
-    def compute_metrics(eval_preds: transformers.EvalPrediction) -> typing.Dict[str, float]:
+    optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
+
+    def compute_metrics(eval_preds: transformers.trainer_utils.EvalPrediction) -> typing.Mapping[str, float]:
         """
-        Compute the metrics for the evaluation set. This function is called after every evaluation step.
-
-        :param eval_preds: The evaluation predictions. This is an EvalPrediction object, which contains the
-            predictions, labels, and sometimes the input ids as well (if specified in the training arguments).
-        :return: A dictionary of the metrics. The keys are the metric names, and the values are the metric values.
+        Return a collection of evaluation metrics given a (logits, labels) pair for a multi-class classification problem.
+        :param eval_preds: A 2-tuple of the form [logits, labels]. Labels is a collection of integers representing the label
+            of the input. Logits is a collection of tensors corresponding to the model's logits for each input in the batch.
+        :return: A dictionary of metrics (mapping string metric names to float metric values).
         """
-        predictions = eval_preds.predictions
-        labels = eval_preds.label_ids
-
-        batch_size = predictions.shape[0]
-        target_length = predictions.shape[1]
-
-        # Flatten the predictions and labels from (batch_size, target_length) to (batch_size * target_length)
-        predictions = predictions.reshape([batch_size * target_length])
-        labels = labels.reshape([batch_size * target_length])
-
-        clf_metrics = evaluate.combine(
-            [
-                constants.Metric.ACCURACY.value,
-            ]
-        )
-        return clf_metrics.compute(predictions=predictions, references=labels)
-
-    def preprocess_logits_for_metrics(
-            logits: torch.Tensor,  # (batch_size, target_length, vocab_size)
-            labels: torch.Tensor,  # (batch_size, target_length)
-    ):
-        if isinstance(logits, tuple):
-            # Depending on the model and config, logits may contain extra tensors,
-            # like past_key_values, but logits always come first
-            logits = logits[0]
-        return logits.argmax(dim=-1)
+        return metric_utils.compute_metrics(eval_preds=eval_preds, tokenizer=tokenizer)
 
     trainer = EncoderDecoderTrainer(
         model=model,
@@ -201,10 +175,10 @@ def main(dict_config: omegaconf.DictConfig):
         train_dataset=dataset_splits[constants.DatasetSplit.TRAIN.value],
         eval_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
         tokenizer=tokenizer,
-        optimizers=(optimizer, lr_scheduler) if not dict_config.deepspeed.use_deepspeed else (None, None),
+        optimizers=optimizers,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+        preprocess_logits_for_metrics=metric_utils.preprocess_logits_for_metrics,
     )
 
     trainer.train()

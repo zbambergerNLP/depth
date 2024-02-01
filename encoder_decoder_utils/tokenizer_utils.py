@@ -723,3 +723,11 @@ class DepthTokenizer(T5TokenizerFast):
             self.convert_to_tensors_(batch_outputs, return_tensors)
 
         return transformers.BatchEncoding(batch_outputs)
+
+    def get_sentence_tokens(self):
+        special_tokens = self.special_tokens_map[DEPTHTokenizerConstants.ADDITIONAL_SPECIAL_TOKENS]
+        sentence_tokens = list(filter(lambda token: f'<{DEPTHTokenizerConstants.SENT}' in token, special_tokens))
+        return sentence_tokens
+
+    def get_sentence_token_ids(self):
+        return self.convert_tokens_to_ids(self.get_sentence_tokens())

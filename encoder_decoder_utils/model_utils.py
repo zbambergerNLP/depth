@@ -110,6 +110,7 @@ def get_model(
 
     return model
 
+
 def get_config(
         args: omegaconf.DictConfig,
         logger: Logger,
@@ -363,6 +364,7 @@ def get_data_collator(
                 target_length=args.data.target_length,
                 pad_token_id=config.pad_token_id,
                 decoder_start_token_id=config.decoder_start_token_id,
+                sentence_shuffling_probability=args.data.sentence_shuffling_probability
             )
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')
