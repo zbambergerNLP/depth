@@ -98,7 +98,7 @@ dataset:
 
     # The number of examples to use for the training set.
   training_set:
-    num_examples: 2_210_000
+    num_examples: -1
 
   # The number of examples to use for the validation set.
   validation_set:
@@ -127,7 +127,14 @@ data:
 
 optim:
 
-  # The optimizer to use. Options are 'adamw', 'adamwscale', and 'adafactor'
+  # The optimizer to use.
+  # If not using deepspeed, options are:
+  #   'adamw', 'adamwscale', and 'adafactor'
+  # If using deepspeed, options are:
+  #   'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
+  #   'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision', 'sgd', 'adagrad',
+  #   'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit', 'paged_adamw_32bit', 'paged_adamw_8bit',
+  #   'paged_lion_32bit', 'paged_lion_8bit', 'rmsprop'
   name: adamwscale
 
   # The initial learning rate to use for the optimizer (not including warmup).
@@ -136,6 +143,8 @@ optim:
   # The size of the batch to use for training. The model will only perform a step after this many examples have been
   # processed.
   batch_size: 128
+
+  auto_find_batch_size: true
 
   # The total number of steps to train for.
   total_steps: 65_536
@@ -146,7 +155,8 @@ optim:
   # The number of warmup steps to use for the optimizer.
   warmup_steps: 10_000
 
-  # The learning rate scheduler to use. Options are 'linear', 'cosine', 'legacy', and 'constant'
+  # The learning rate scheduler to use. Options are: 'linear', 'cosine', 'legacy', and 'constant'
+  #
   lr_scheduler: cosine
 
   # The weight decay to use for the optimizer.
@@ -203,8 +213,8 @@ logging:
 deepspeed:
 
   # Whether to use DeepSpeed or not.
-  use_deepspeed: false
+  use_deepspeed: true
 
   # The path to the DeepSpeed config file to use.
-  deepspeed_config_path: zero_stage_2_config.json
+  deepspeed_config_path: "/home/zachary/depth/zero_stage_2_config.json"
 

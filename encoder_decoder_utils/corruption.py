@@ -15,7 +15,6 @@ import transformers
 
 from encoder_decoder_utils.constants import (
     T5TokenizerConstants,
-    DEPTHTokenizerConstants,
 )
 
 
@@ -38,7 +37,7 @@ def _pad_or_truncate(
 
 
 def _pad_or_truncate_np(
-        sequence: np.ndarray, # An integer tensor of shape [batch_size, input_length]
+        sequence: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         length: int,
         pad_token: int,
 ) -> np.ndarray:
@@ -60,6 +59,7 @@ def _pad_or_truncate_np(
         )
     else:
         return sequence[:, :length]
+
 
 def shift_tokens_right(
         input_ids: np.array,  # An integer tensor of shape [batch_size, sequence_length]
@@ -233,7 +233,7 @@ def pmi_noise_mask(
         examples: transformers.BatchEncoding,
         pmi_vocab: Set[str],
         tokenizer: transformers.T5Tokenizer
-) -> np.ndarray: # Size: [batch_size, input_length]
+) -> np.ndarray:  # Size: [batch_size, input_length]
     """
     Create a mask for PMI-based corruption in encoder-decoder models (e.g., T5).
 
@@ -375,8 +375,8 @@ def random_spans_noise_mask(
 
 def filter_input_ids_for_t5(
         vocab_size: int,
-        input_ids: np.ndarray,              # An integer tensor of shape [batch_size, input_length]
-        sentinel_ids: np.ndarray,           # An integer tensor of shape [batch_size, input_length]
+        input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
+        sentinel_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         token_type_ids: np.ndarray = None,  # An integer tensor of shape [batch_size, input_length]
 ) -> Tuple[np.ndarray, Union[np.ndarray, None]]:
     """
@@ -649,7 +649,7 @@ def corrupt_for_vanilla_t5(
         )
     # to check that tokens are correctly preprocessed, one can run `self.tokenizer.batch_decode(input_ids)` and
     # `self.tokenizer.batch_decode(labels)` here
-    batch[T5TokenizerConstants.DECODER_INPUT_IDS] =  shift_tokens_right(
+    batch[T5TokenizerConstants.DECODER_INPUT_IDS] = shift_tokens_right(
         input_ids=batch[T5TokenizerConstants.LABELS],
         pad_token_id=pad_token_id,
         decoder_start_token_id=decoder_start_token_id,
@@ -659,10 +659,10 @@ def corrupt_for_vanilla_t5(
 
 def create_encoder_self_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
-        input_token_type_ids,   # An integer tensor of shape [batch_size, input_length]
+        input_token_type_ids,  # An integer tensor of shape [batch_size, input_length]
         tokenizer,
         sentence_token_ids: List[int],
-) -> np.ndarray:                # A binary integer tensor of shape [batch_size, input_length, input_length]
+) -> np.ndarray:  # A binary integer tensor of shape [batch_size, input_length, input_length]
     """
     Create a self attention mask for the encoder.
 
@@ -719,12 +719,13 @@ def create_encoder_self_attention_mask(
         [batch_size, input_sequence_length, input_sequence_length])
     return batch_encoder_self_attention_mask
 
+
 def create_cross_attention_mask(
-        input_ids: np.ndarray,                  # An integer tensor of shape [batch_size, input_length]
-        target_ids: np.ndarray,                 # An integer tensor of shape [batch_size, target_length]
+        input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
+        target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
         tokenizer: transformers.PreTrainedTokenizer,
-) -> np.ndarray:                               # A binary integer tensor of shape [batch_size, target_length, input_length]
+) -> np.ndarray:  # A binary integer tensor of shape [batch_size, target_length, input_length]
     """
     Create a cross attention mask for the decoder.
 
@@ -784,12 +785,13 @@ def create_cross_attention_mask(
         [batch_size, target_sequence_length, input_sequence_length])
     return batch_cross_attention_mask
 
+
 def create_decoder_self_attention_mask(
-        target_ids: np.ndarray,                 # An integer tensor of shape [batch_size, target_length]
-        target_token_type_ids: np.ndarray,      # An integer tensor of shape [batch_size, target_length]
+        target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
+        target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
         tokenizer: transformers.PreTrainedTokenizer,
-) -> np.ndarray:                                # A binary integer tensor of shape [batch_size, target_length, target_length]
+) -> np.ndarray:  # A binary integer tensor of shape [batch_size, target_length, target_length]
     """
     Create a self attention mask for the decoder.
 
@@ -849,10 +851,10 @@ def create_decoder_self_attention_mask(
 
 
 def create_attention_mask(
-        input_ids: np.ndarray,                  # An integer tensor of shape [batch_size, input_length]
-        target_ids: np.ndarray,                 # An integer tensor of shape [batch_size, target_length]
-        input_token_type_ids: np.ndarray,       # An integer tensor of shape [batch_size, input_length]
-        target_token_type_ids: np.ndarray,      # An integer tensor of shape [batch_size, target_length]
+        input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
+        target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
+        input_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
+        target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         tokenizer: transformers.PreTrainedTokenizer,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -942,7 +944,8 @@ def create_attention_mask(
 
 def create_sentinel_ids(
         tokenizer: transformers.PreTrainedTokenizer,
-        mask_indices: np.ndarray,  # An integer tensor of shape [batch_size, sequence_length] or shape [sequence_length].
+        mask_indices: np.ndarray,
+        # An integer tensor of shape [batch_size, sequence_length] or shape [sequence_length].
         random_sentinel_order: bool = True,
 ) -> np.ndarray:  # Integer array of shape [batch_size, sequence_length]
     """
@@ -1086,7 +1089,6 @@ def shuffle_inputs(
         sentence within the input. Padding tokens have a token type ID of 0.
     :param sentence_lengths: An integer tensor of shape [num_sentences] containing the lengths of each sentence.
     :param padding_token_id: The token ID of the padding token of a vocabulary (accessible via the tokenizer).
-    :param seed: The seed for the random number generator.
     :return: A 4-tuple consisting of:
         - The shuffled order of sentences (e.g., [1, 2, 3] -> [2, 1, 3])
         - The lengths of the shuffled sentences. (e.g., [2, 1, 3] -> [5, 10, 15] if sentence 2 is of length 5, sentence

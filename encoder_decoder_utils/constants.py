@@ -2,25 +2,30 @@ import dataclasses
 import enum
 import typing
 
+
 class MonitoringPlatform(enum.Enum):
     """Monitoring platform."""
     WANDB = "wandb"
     NEPTUNE = "neptune"
+
 
 class Device(enum.Enum):
     """Device to train on."""
     CPU = "cpu"
     GPU = "gpu_cluster"
 
+
 class TrainingPhase(enum.Enum):
     """Training phase."""
     FT = "ft"
     PT = "pt"
 
+
 class NumericalPrecision(enum.Enum):
     """Numerical precision."""
     FP32 = "fp32"
     BF16 = "bf16"
+
 
 class ModelImplementation(enum.Enum):
     """Model implementations."""
@@ -28,18 +33,21 @@ class ModelImplementation(enum.Enum):
     HUGGINGFACE_T5 = "hf_t5"
     DEPTH = "depth"
 
+
 class ModelHuggingFaceName(enum.Enum):
     """HuggingFace model names."""
-    T5_SMALL = "google/t5-v1_1-small"   # 60M params
-    T5_BASE = "google/t5-v1_1-base"     # 220M params
-    T5_LARGE = "google/t5-v1_1-large"   # 770M params
-    T5_3B = "google/t5-v1_1-xl"         # 3B params
-    T5_11B = "google/t5-v1_1-xxl"       # 11B params
-    UL2 = "google/ul2"                  # 20B params
+    T5_SMALL = "google/t5-v1_1-small"  # 60M params
+    T5_BASE = "google/t5-v1_1-base"  # 220M params
+    T5_LARGE = "google/t5-v1_1-large"  # 770M params
+    T5_3B = "google/t5-v1_1-xl"  # 3B params
+    T5_11B = "google/t5-v1_1-xxl"  # 11B params
+    UL2 = "google/ul2"  # 20B params
+
 
 class EnvironmentVariable(enum.Enum):
     """Environment variables."""
     SLURM_JOB_ID = "SLURM_JOB_ID"
+
 
 class DatasetSplit(enum.Enum):
     """Dataset split."""
@@ -47,11 +55,13 @@ class DatasetSplit(enum.Enum):
     TEST = "test"
     VALIDATION = "validation"
 
+
 class Optimizer(enum.Enum):
     """Optimizer constants."""
     ADAMW: str = 'adamw'
     ADAMWSCALE: str = 'adamwscale'
     ADAFACTOR: str = 'adafactor'
+
 
 class Scheduler(enum.Enum):
     """Scheduler constants."""
@@ -59,6 +69,7 @@ class Scheduler(enum.Enum):
     COSINE: str = 'cosine'
     LEGACY: str = 'legacy'  # The legacy scheduler from the original T5 paper.
     LINEAR: str = 'linear'
+
 
 class TagCategory(enum.Enum):
     """Tag categories for logging."""
@@ -73,6 +84,7 @@ class TagCategory(enum.Enum):
     PRECISION = "precision"
     NUM_PROCESSES = "num_processes"
     NUM_GPUS = "num_gpus"
+
 
 class Metric(enum.Enum):
     """Metrics."""
@@ -114,6 +126,7 @@ class Metric(enum.Enum):
     EXAMPLE_SPEARMAN: str = 'example_spearman'
     EXAMPLE_PEARSON: str = 'example_pearson'
 
+
 class DepthMetric(enum.Enum):
     AVERAGE_LOSS_ON_SENTENCE_TOKENS: str = 'average_loss_on_sentence_tokens'
     VARIANCE_LOSS_ON_SENTENCE_TOKENS: str = 'variance_loss_on_sentence_tokens'
@@ -141,6 +154,7 @@ class TokenizerConstants:
     INPUT_LENGTH: str = 'input_length'
     NUM_TRUNCATED_TOKENS: str = 'num_truncated_tokens'
 
+
 @dataclasses.dataclass
 class T5TokenizerConstants(TokenizerConstants):
     START_TOKEN: str = '</s>'
@@ -155,7 +169,7 @@ class T5TokenizerConstants(TokenizerConstants):
 
 class DEPTHTokenizerConstants(T5TokenizerConstants):
     SENTENCE_TOKEN: str = "SENT"
-    SENT: str  = "sent"
+    SENT: str = "sent"
     SENT_TOKEN: str = '<sent>'
     END_OF_SENTENCE_TOKEN: str = "<eosen>"
     ADDITIONAL_SPECIAL_TOKENS: str = 'additional_special_tokens'
@@ -180,4 +194,3 @@ class OptimizerConstants:
 @dataclasses.dataclass(frozen=True)
 class SchedulerConstants:
     NO_DECAY: typing.Tuple[str] = ("bias", "LayerNorm", "layernorm", "layer_norm", "ln")
-

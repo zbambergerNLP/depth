@@ -15,7 +15,7 @@ from typing import (
 )
 import nltk
 
-from .constants import (
+from encoder_decoder_utils.constants import (
     DEPTHTokenizerConstants,
 )
 
@@ -208,7 +208,8 @@ def prepare_for_model(
                         [0] * difference + [1] * len(encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS]))
             if return_token_type_ids:
                 encoded_inputs[DEPTHTokenizerConstants.TOKEN_TYPE_IDS] = (
-                        [tokenizer.pad_token_type_id] * difference + encoded_inputs[DEPTHTokenizerConstants.TOKEN_TYPE_IDS]
+                        [tokenizer.pad_token_type_id] * difference + encoded_inputs[
+                    DEPTHTokenizerConstants.TOKEN_TYPE_IDS]
                 )
             if return_special_tokens_mask:
                 encoded_inputs[DEPTHTokenizerConstants.SPECIAL_TOKENS_MASK] = (
@@ -245,6 +246,7 @@ def prepare_for_model(
         )
 
     return transformers.BatchEncoding(encoded_inputs)
+
 
 def convert_to_tensors_(batch_outputs: dict, return_tensors: str) -> None:
     # Do the tensor conversion in batch
@@ -582,7 +584,6 @@ PRETRAINED_VOCAB_FILES_MAP = {
     },
 }
 
-
 # TODO(PVP) - this should be removed in Transformers v5
 PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     "t5-small": 512,
@@ -591,6 +592,7 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     "t5-3b": 512,
     "t5-11b": 512,
 }
+
 
 class DepthTokenizer(T5TokenizerFast):
 
@@ -615,7 +617,6 @@ class DepthTokenizer(T5TokenizerFast):
         special_tokens_dict = {DEPTHTokenizerConstants.ADDITIONAL_SPECIAL_TOKENS: additional_special_tokens}
         self.add_special_tokens(special_tokens_dict=special_tokens_dict)
         self.max_num_sentences_in_text = num_sent_tokens
-
 
     # TODO: Migrate to the signature defined here:
     #  https://github.com/huggingface/transformers/blob/main/src/transformers/tokenization_utils_base.py#L2932-L3003
@@ -669,7 +670,7 @@ class DepthTokenizer(T5TokenizerFast):
                         isinstance(padding, str) and
                         (padding == 'longest' or padding == 'max_length')
                 ) or (
-                isinstance(padding, bool) and padding
+                        isinstance(padding, bool) and padding
                 )
         ) and self.pad_token_id is None:
             raise ValueError(

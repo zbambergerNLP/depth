@@ -3,7 +3,6 @@
 import copy
 import math
 import typing
-import warnings
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
@@ -658,9 +657,9 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
 
     def forward(
             self,
-            encoder_input_ids: Optional[torch.LongTensor] = None,
+            input_ids: Optional[torch.LongTensor] = None,
             encoder_attention_mask: Optional[torch.FloatTensor] = None,
-            decoder_input_ids: Optional[torch.LongTensor] = None,
+            target_ids: Optional[torch.LongTensor] = None,
             decoder_attention_mask: Optional[torch.BoolTensor] = None,
             cross_attention_mask: Optional[torch.BoolTensor] = None,
             labels: Optional[torch.LongTensor] = None,
@@ -680,11 +679,11 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         """
         Perform the forward pass of T5 model for generation.
 
-        :param encoder_input_ids: A tensor of shape (batch_size, input_sequence_length) with the token ids of the input
+        :param input_ids: A tensor of shape (batch_size, input_sequence_length) with the token ids of the input
             sequence.
         :param encoder_attention_mask: A tensor of shape (batch_size, input_sequence_length, input_sequence_length)
             with the attention mask from the encoder to the encoder (0 for mask, 1 for no mask).
-        :param decoder_input_ids: A tensor of shape (batch_size, target_sequence_length, target_sequence_length) with
+        :param target_ids: A tensor of shape (batch_size, target_sequence_length, target_sequence_length) with
             the token ids of the decoder input sequence.
         :param decoder_attention_mask: A tensor of shape (batch_size, target_sequence_length, input_sequence_length)
             with the attention mask from the decoder to the decoder (0 for mask, 1 for no mask).
@@ -709,6 +708,8 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         :param use_cache: A boolean indicating whether to use the cached keys and values.
         :param output_attentions: A boolean indicating whether to return the attentions weights.
         :param output_hidden_states: A boolean indicating whether to return the hidden states.
+        :param return_dict: A boolean indicating whether to return a ModelOutput instead of a plain tuple. True
+            indicates that a ModelOutput should be returned. False indicates that a tuple should be returned.
 
         :return: A Seq2SeqLMOutput containing the outputs of the forward pass (i.e., the logits, loss, etc...)
         """
@@ -724,7 +725,7 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         if encoder_outputs is None:
             # Convert encoder inputs in embeddings if needed
             encoder_outputs = self.encoder(
-                input_ids=encoder_input_ids,
+                input_ids=input_ids,
                 attention_mask=encoder_attention_mask,
                 inputs_embeds=inputs_embeds,
                 head_mask=head_mask,
@@ -744,16 +745,16 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
 
-        if labels is not None and decoder_input_ids is None and decoder_inputs_embeds is None:
+        if labels is not None and target_ids is None and decoder_inputs_embeds is None:
             # get decoder inputs from shifting lm labels to the right
-            decoder_input_ids = self._shift_right(labels)
+            target_ids = self._shift_right(labels)
 
         # Set device for model parallelism
         if self.model_parallel:
             torch.cuda.set_device(self.decoder.first_device)
             hidden_states = hidden_states.to(self.decoder.first_device)
-            if decoder_input_ids is not None:
-                decoder_input_ids = decoder_input_ids.to(self.decoder.first_device)
+            if target_ids is not None:
+                target_ids = target_ids.to(self.decoder.first_device)
             if cross_attention_mask is not None:
                 cross_attention_mask = cross_attention_mask.to(self.decoder.first_device)
             if decoder_attention_mask is not None:
@@ -761,7 +762,7 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
 
         # Decode
         decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids,
+            input_ids=target_ids,
             attention_mask=decoder_attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             past_key_values=past_key_values,
@@ -790,12 +791,20 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
 
         lm_logits = self.lm_head(sequence_output)
 
+        sequence_losses = None
         loss = None
         if labels is not None:
-            loss_fct = CrossEntropyLoss(ignore_index=-100)
+            loss_fct = CrossEntropyLoss(ignore_index=-100, reduction='none')
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+            sequence_losses = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1)).reshape(labels.shape)
+
+            # TODO: Ignore padding tokens
+            is_padding = labels.eq(-100)
+            loss = sequence_losses[~is_padding].mean()
+
+            # loss = sequence_losses.mean()
+            # loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
 
         if not return_dict:
@@ -805,11 +814,4 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         return Seq2SeqLMOutput(
             loss=loss,
             logits=lm_logits.contiguous(),
-            # past_key_values=decoder_outputs.past_key_values,
-            # decoder_hidden_states=decoder_outputs.hidden_states,
-            # decoder_attentions=decoder_outputs.attentions,
-            # cross_attentions=decoder_outputs.cross_attentions,
-            # encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            # encoder_hidden_states=encoder_outputs.hidden_states,
-            # encoder_attentions=encoder_outputs.attentions,
         )

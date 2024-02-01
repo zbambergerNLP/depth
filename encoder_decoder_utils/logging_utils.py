@@ -15,6 +15,7 @@ from encoder_decoder_utils.constants import (
 import wandb
 import torch
 
+
 class Logger:
     def __init__(self, args: omegaconf.DictConfig, accelerator: accelerate.Accelerator):
         """

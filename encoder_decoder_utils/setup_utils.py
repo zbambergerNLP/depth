@@ -2,7 +2,7 @@ import torch
 import os
 
 import omegaconf
-from hydra.utils import to_absolute_path
+import hydra
 import accelerate
 import transformers
 import numpy as np
@@ -18,7 +18,7 @@ from encoder_decoder_utils.constants import (
 from encoder_decoder_utils.logging_utils import Logger
 
 
-def set_seed(seed: int=2137):
+def set_seed(seed: int = 2137):
     """
     Set the seed for all the random number generators.
     :param seed: The seed to set. If None, the seed will not be set.
@@ -94,22 +94,6 @@ def update_args_with_env_info(args: omegaconf.DictConfig):
             args.slurm_id = 'none'
 
         args.working_dir = os.getcwd()
-
-
-def update_paths(args: omegaconf.DictConfig):
-    """
-    Update the paths in the arguments to absolute paths.
-
-    Specifically, update the paths of the execution file, data directory, and task directory.
-
-    :param args: The hydra config which contains the model, data, and training arguments. See the
-        configs/default.yaml file for the default configuration.
-    """
-    # If we are fine-tuning, we need to update the paths
-    if args.mode == TrainingPhase.FT.value:
-        args.data.exec_file_path = to_absolute_path(args.data.exec_file_path)
-        args.data.data_dir = to_absolute_path(args.data.data_dir)
-        args.data.task_dir = to_absolute_path(args.data.task_dir)
 
 
 def setup_basics(accelerator: accelerate.Accelerator, args: omegaconf.DictConfig) -> Logger:

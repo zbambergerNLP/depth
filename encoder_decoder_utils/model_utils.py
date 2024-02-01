@@ -152,9 +152,11 @@ def get_tokenizer(
     # TODO: Enable custom tokenizer
     logger.log_message(f'Loading {args.model.tokenizer} tokenizer')
 
-    if 'depth' in args.model.tokenizer.lower():
-        tokenizer = DepthTokenizer.from_pretrained(args.model.name)
-        # tokenizer.set_num_sentence_tokens(DEPTHTokenizerConstants.NUM_SENT_TOKENS)
+    if args.model.model_implementation == ModelImplementation.DEPTH.value:
+        tokenizer = DepthTokenizer.from_pretrained(
+            args.model.name,
+            use_fast=True,
+        )
     else:
         tokenizer = AutoTokenizer.from_pretrained(
             args.model.tokenizer,
@@ -191,10 +193,23 @@ def load_dataset_splits(
             args.dataset.columns_to_remove
         )
 
+        training_set = dataset[DatasetSplit.TRAIN.value]
+        validation_set = dataset[DatasetSplit.VALIDATION.value]
+
+        # If specified, take a subset of the training and validation sets
+        if args.dataset.training_set.num_examples > -1:
+            logger.log_message(f'Only using {args.dataset.training_set.num_examples} examples from the training set.')
+            training_set = training_set.take(args.dataset.training_set.num_examples)
+
+        if args.dataset.validation_set.num_examples > -1:
+            logger.log_message(
+                f'Only using {args.dataset.validation_set.num_examples} examples from the validation set.')
+            validation_set = validation_set.take(args.dataset.validation_set.num_examples)
+
         # We want to use the validation set as the test set
         dataset_splits = {
-            DatasetSplit.TRAIN.value: dataset[DatasetSplit.TRAIN.value],
-            DatasetSplit.TEST.value: dataset[DatasetSplit.VALIDATION.value],
+            DatasetSplit.TRAIN.value: training_set,
+            DatasetSplit.TEST.value: validation_set,
         }
 
         assert (
@@ -267,7 +282,7 @@ def process_dataset(
                 )
 
             # TODO: Add support for DEPTH tokenizer
-            elif 'depth' in args.model.tokenizer.lower():
+            elif args.model.model_implementation == ModelImplementation.DEPTH.value:
                 logger.log_message('Tokenizing for DEPTH without merging examples')
                 dataset_split = dataset_split.map(
                     tokenizer_function_depth_pre_training,

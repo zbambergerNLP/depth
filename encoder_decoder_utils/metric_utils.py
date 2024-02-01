@@ -8,6 +8,7 @@ from torch.nn import CrossEntropyLoss
 
 from encoder_decoder_utils.constants import Metric, DepthMetric
 
+
 def trainer_compute_metrics(
         eval_pred: transformers.EvalPrediction,
         tokenizer: transformers.PreTrainedTokenizer,
@@ -26,6 +27,7 @@ def trainer_compute_metrics(
         pad_token_id=eval_pred.label_ids[0, 0],
         sentence_token_ids=None,
     )
+
 
 def compute_loss_metrics(
         input_ids: np.ndarray,  # Shape: (batch_size, input_length

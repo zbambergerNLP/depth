@@ -1,5 +1,3 @@
-import time
-
 import omegaconf
 import hydra
 import typing
@@ -16,7 +14,6 @@ import os
 import torch
 import transformers
 import evaluate
-import numpy as np
 
 from encoder_decoder_utils.trainer import EncoderDecoderTrainer
 
@@ -87,30 +84,22 @@ def main(dict_config: omegaconf.DictConfig):
     logger.log_message("Initialized logger successfully.")
 
     config = model_utils.get_config(args=dict_config, logger=logger)
-    model = accelerator.prepare(
-        model_utils.get_model(args=dict_config, config=config, logger=logger),
-    )
+    model = model_utils.get_model(args=dict_config, config=config, logger=logger)
 
+    # TODO: Account for model checkpoint loading in trainer
     # Load the model from a defined checkpoint
-    if dict_config.model.checkpoint_path:
-        logger.log_message(f'Loading model from checkpoint: {dict_config.model.checkpoint_path}')
-        accelerator.load_state(dict_config.model.checkpoint_path)
+    # if dict_config.model.checkpoint_path:
+    #     logger.log_message(f'Loading model from checkpoint: {dict_config.model.checkpoint_path}')
+    #     accelerator.load_state(dict_config.model.checkpoint_path)
 
     tokenizer = model_utils.get_tokenizer(args=dict_config, logger=logger)
-    optimizer = optimizer_utils.get_optimizer(model=model, args=dict_config, logger=logger)
-    lr_scheduler = optimizer_utils.get_lr_scheduler(optimizer=optimizer, args=dict_config, logger=logger)
+
+    optimizer, lr_scheduler = None, None
+    if not dict_config.deepspeed.use_deepspeed:
+        optimizer = optimizer_utils.get_optimizer(model=model, args=dict_config, logger=logger)
+        lr_scheduler = optimizer_utils.get_lr_scheduler(optimizer=optimizer, args=dict_config, logger=logger)
 
     dataset_splits = model_utils.load_dataset_splits(args=dict_config, logger=logger)
-
-    # If specified, take a subset of the eval_dataset
-    # if dict_config.dataset.validation_set.num_examples is not None and dict_config.dataset.streaming:
-    #     logger.log_message(
-    #         f'Only using {dict_config.dataset.validation_set.num_examples} examples from the validation set.'
-    #     )
-    #     dataset_splits[constants.DatasetSplit.TEST.value] = dataset_splits[
-    #         constants.DatasetSplit.TEST.value
-    #     ].take(range(dict_config.dataset.validation_set.num_examples))
-
     dataset_splits = model_utils.process_dataset(
         dataset_splits=dataset_splits, args=dict_config, tokenizer=tokenizer, logger=logger)
 
@@ -123,16 +112,24 @@ def main(dict_config: omegaconf.DictConfig):
     training_arguments = transformers.Seq2SeqTrainingArguments(
         output_dir=dict_config.checkpoint.output_dir,
         per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_train_batch_size * 2, # Batch size can be larger for evaluation
+        per_device_eval_batch_size=per_device_train_batch_size * 2,  # Batch size can be larger for evaluation
         gradient_accumulation_steps=dict_config.optim.grad_acc,
+        eval_accumulation_steps=dict_config.optim.grad_acc,
         max_steps=dict_config.optim.total_steps,
         remove_unused_columns=False,  # Data collator is responsible for removing unused columns.
+
+        # Optimizer
+        learning_rate=dict_config.optim.base_lr if dict_config.deepspeed.use_deepspeed else None,
+        optim=dict_config.optim.name if dict_config.deepspeed.use_deepspeed else None,
+        lr_scheduler_type=dict_config.optim.lr_scheduler if dict_config.deepspeed.use_deepspeed else None,
+
 
         # Logging
         report_to=report_to,
         logging_steps=dict_config.logging.every_steps,
         # include_num_input_tokens_seen=True,  # TODO: Consider un-commenting this.
         include_inputs_for_metrics=True,
+        length_column_name=constants.DEPTHTokenizerConstants.INPUT_LENGTH,
 
         # Checkpointing
         # save_total_limit=3,  # TODO: Make this a flag. Default assumes 65k steps, with a checkpoint every 10k steps.
@@ -142,6 +139,7 @@ def main(dict_config: omegaconf.DictConfig):
         eval_steps=dict_config.evaluate.every_steps,
         evaluation_strategy="steps",
         load_best_model_at_end=True,
+        label_names=["labels"],
 
         # Determinism
         seed=dict_config.seed,
@@ -156,47 +154,46 @@ def main(dict_config: omegaconf.DictConfig):
         dataloader_num_workers=dict_config.data.num_workers,
         dataloader_persistent_workers=True if dict_config.data.num_workers > 0 else False,
         dataloader_pin_memory=True,
+        deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,
+        auto_find_batch_size=dict_config.optim.auto_find_batch_size,  # TODO: Consider removing this.
+        # deepspeed=str(dict_config.deepspeed.deepspeed_config_path) if dict_config.deepspeed.use_deepspeed else None,
     )
 
-    if dict_config.model.model_implementation == constants.ModelImplementation.DEPTH.value:
-        # def compute_metrics(eval_pred: transformers.EvalPrediction) -> typing.Dict[str, float]:
-        #     return metric_utils.trainer_compute_metrics(
-        #         eval_pred=eval_pred,
-        #         tokenizer=tokenizer,
-        #     )
-        def compute_metrics(eval_preds):
-            clf_metrics = evaluate.combine(
-                [
-                    constants.Metric.ACCURACY.value,
-                    constants.Metric.F1.value,
-                    constants.Metric.PRECISION.value,
-                    constants.Metric.RECALL.value,
-                ]
-            )
-            logits, labels = eval_preds
-            predictions = np.argmax(logits, axis=-1)
-            return clf_metrics.compute(predictions=predictions, references=labels)
-    else:
-        # TODO: Add compute metrics for T5
-        def compute_metrics(eval_preds):
-            clf_metrics = evaluate.combine(
-                [
-                    constants.Metric.ACCURACY.value,
-                    constants.Metric.ROUGE.value,
-                    constants.Metric.ROUGE_L.value,
-                ]
-            )
-            logits, labels = eval_preds
-            predictions = np.argmax(logits, axis=-1)
-            return clf_metrics.compute(predictions=predictions, references=labels)
+    # TODO: Add metrics specifically for DEPTH
+    def compute_metrics(eval_preds: transformers.EvalPrediction) -> typing.Dict[str, float]:
+        """
+        Compute the metrics for the evaluation set. This function is called after every evaluation step.
 
-    def preprocess_logits_for_metrics(logits, labels):
+        :param eval_preds: The evaluation predictions. This is an EvalPrediction object, which contains the
+            predictions, labels, and sometimes the input ids as well (if specified in the training arguments).
+        :return: A dictionary of the metrics. The keys are the metric names, and the values are the metric values.
+        """
+        predictions = eval_preds.predictions
+        labels = eval_preds.label_ids
+
+        batch_size = predictions.shape[0]
+        target_length = predictions.shape[1]
+
+        # Flatten the predictions and labels from (batch_size, target_length) to (batch_size * target_length)
+        predictions = predictions.reshape([batch_size * target_length])
+        labels = labels.reshape([batch_size * target_length])
+
+        clf_metrics = evaluate.combine(
+            [
+                constants.Metric.ACCURACY.value,
+            ]
+        )
+        return clf_metrics.compute(predictions=predictions, references=labels)
+
+    def preprocess_logits_for_metrics(
+            logits: torch.Tensor,  # (batch_size, target_length, vocab_size)
+            labels: torch.Tensor,  # (batch_size, target_length)
+    ):
         if isinstance(logits, tuple):
             # Depending on the model and config, logits may contain extra tensors,
             # like past_key_values, but logits always come first
             logits = logits[0]
         return logits.argmax(dim=-1)
-
 
     trainer = EncoderDecoderTrainer(
         model=model,
@@ -204,7 +201,7 @@ def main(dict_config: omegaconf.DictConfig):
         train_dataset=dataset_splits[constants.DatasetSplit.TRAIN.value],
         eval_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
         tokenizer=tokenizer,
-        optimizers=(optimizer, lr_scheduler),
+        optimizers=(optimizer, lr_scheduler) if not dict_config.deepspeed.use_deepspeed else (None, None),
         data_collator=data_collator,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,

@@ -19,6 +19,7 @@ from encoder_decoder_utils.constants import (
     DEPTHTokenizerConstants,
 )
 
+
 @dataclass
 class T5DataCollator:
     """
@@ -99,6 +100,7 @@ class T5DataCollator:
         batch = {k: torch.from_numpy(v) for k, v in batch.items()}
         return batch
 
+
 @dataclass
 class DEPTHDataCollator:
     """
@@ -122,7 +124,6 @@ class DEPTHDataCollator:
     :param target_length (:obj:`int`): The expected target length after masking.
     :param pad_token_id: (:obj:`int`): The pad token id of the model
     :param decoder_start_token_id: (:obj:`int): The decoder start token id of the model
-    :param seeds: (:obj:`List[List[int]]`): The seeds used for shuffling the sentences.
     :param sentence_shuffling_probability: (:obj:`float`): The probability with which to shuffle the sentences.
     """
 
@@ -193,10 +194,6 @@ class DEPTHDataCollator:
         batch = transformers.BatchEncoding(
             {k: np.array([examples[i][k] for i in range(len(examples))]) for k, v in examples[0].items()}
         )
-
-        # Content contains the textual content of the example, which is not used for training.
-        if "content" in batch:
-            del batch["content"]
 
         input_ids = np.array(batch.pop(DEPTHTokenizerConstants.INPUT_IDS))
         token_type_ids = np.array(batch.pop(DEPTHTokenizerConstants.TOKEN_TYPE_IDS))
@@ -272,16 +269,23 @@ class DEPTHDataCollator:
         # https://arxiv.org/pdf/2010.16249.pdf
         # See page 3, under the "Sequence Shuffling" in section 2.
         shuffle_batch = np.random.uniform() < self.sentence_shuffling_probability
+
         if shuffle_batch:
+
             batch_encoder_input_ids = []
             batch_encoder_token_type_ids = []
+
             for example_index in range(batch_size):
+                # Identify the unique sentence ids, the number of tokens in each sentence, and the start index of each
+                #  sentence.
                 (example_encoder_sentence_ids,
                  example_encoder_sentence_start_indices,
                  example_encoder_sentence_lengths) = np.unique(
                     modified_encoder_token_type_ids[example_index][1:],
                     return_counts=True,
                     return_index=True)
+
+                # Shuffle the sentences.
                 (example_encoder_shuffled_sentence_order,
                  example_encoder_shuffled_sentence_lengths,
                  example_encoder_shuffled_sentence_start_indices,
@@ -292,6 +296,8 @@ class DEPTHDataCollator:
                         sentence_lengths=example_encoder_sentence_lengths
                     )
                 )
+
+                # Concatenate the shuffled sentences.
                 example_encoder_shuffled_end_indices = (
                         example_encoder_shuffled_sentence_start_indices + example_encoder_shuffled_sentence_lengths)
                 example_encoder_shuffled_input_ids = np.concatenate(
@@ -299,6 +305,9 @@ class DEPTHDataCollator:
                         example_encoder_shuffled_sentence_start_indices, example_encoder_shuffled_end_indices)
                      ]
                 )
+
+                # Prepend the start of sentence token.
+                # TODO: Get the [EOSEN] token id from the tokenizer.
                 batch_encoder_input_ids.append(
                     np.concatenate([[32120], example_encoder_shuffled_input_ids]))
                 batch_encoder_token_type_ids.append(
@@ -317,7 +326,6 @@ class DEPTHDataCollator:
             modified_encoder_input_ids = np.array(modified_encoder_input_ids)
             modified_label_ids = np.array(modified_label_ids)
 
-
         batch_encoder_self_attention_mask, batch_cross_attention_mask, batch_decoder_self_attention_mask = (
             create_attention_mask(
                 input_ids=modified_encoder_input_ids,
@@ -329,10 +337,10 @@ class DEPTHDataCollator:
         )
 
         # TODO: Create static variables for the string keys (model inputs) below.
-        batch["encoder_input_ids"] = torch.tensor(modified_encoder_input_ids)
+        batch["input_ids"] = torch.tensor(modified_encoder_input_ids)
         batch["encoder_attention_mask"] = torch.tensor(batch_encoder_self_attention_mask)
         batch["cross_attention_mask"] = torch.tensor(batch_cross_attention_mask)
-        batch["decoder_input_ids"] = torch.tensor(modified_decoder_input_ids)
+        batch["target_ids"] = torch.tensor(modified_decoder_input_ids)
         batch["decoder_attention_mask"] = torch.tensor(batch_decoder_self_attention_mask)
         batch["labels"] = torch.tensor(modified_label_ids)
         # All examples in the batch will have the same value for the "is_shuffled" key.
@@ -345,8 +353,8 @@ class DEPTHDataCollator:
             batch.__delitem__('num_truncated_tokens')
         if 'special_tokens_mask' in batch:
             batch.__delitem__('special_tokens_mask')
-        if 'input_length' in batch:
-            batch.__delitem__('input_length')
+        # if 'input_length' in batch:
+        #     batch.__delitem__('input_length')
         if 'attention_mask' in batch:
             batch.__delitem__('attention_mask')
 
