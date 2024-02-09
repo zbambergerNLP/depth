@@ -13,6 +13,7 @@ import re
 import random
 import transformers
 
+from encoder_decoder_utils import tokenizer_utils
 from encoder_decoder_utils.constants import (
     T5TokenizerConstants,
 )
@@ -53,7 +54,7 @@ def _pad_or_truncate_np(
             array=sequence,
             # No padding should be added to the beginning and end of the first axis (the batch dimension), and padding
             # should be added to the end of the second axis (the sequence length).
-            pad_width=((0, 0), (0, length - sequence.shape[1])),
+            pad_width=np.array([[0, 0], [0, length - sequence.shape[1]]]),
             mode="constant",
             constant_values=pad_token,
         )
@@ -724,7 +725,7 @@ def create_cross_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
-        tokenizer: transformers.PreTrainedTokenizer,
+        tokenizer: tokenizer_utils.DepthTokenizer,
 ) -> np.ndarray:  # A binary integer tensor of shape [batch_size, target_length, input_length]
     """
     Create a cross attention mask for the decoder.
@@ -790,7 +791,7 @@ def create_decoder_self_attention_mask(
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
-        tokenizer: transformers.PreTrainedTokenizer,
+        tokenizer: tokenizer_utils.DepthTokenizer,
 ) -> np.ndarray:  # A binary integer tensor of shape [batch_size, target_length, target_length]
     """
     Create a self attention mask for the decoder.
@@ -855,7 +856,7 @@ def create_attention_mask(
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         input_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
-        tokenizer: transformers.PreTrainedTokenizer,
+        tokenizer: tokenizer_utils.DepthTokenizer,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Create an attention mask given input and target token IDs.
@@ -906,13 +907,17 @@ def create_attention_mask(
         3. batch_decoder_self_attention_mask
     """
     # TODO: Make this code more efficient via vectorization.
-    special_tokens = tokenizer.all_special_tokens
-    # TODO: Optimize this filter with regular expressions rather than the 'in' operator.
-    sentence_tokens = list(filter(
-        lambda _token: f'<sent' in _token,
-        special_tokens),
-    )
-    sentence_token_ids = tokenizer.convert_tokens_to_ids(sentence_tokens)
+    # special_tokens = tokenizer.all_special_tokens
+    # # TODO: Optimize this filter with regular expressions rather than the 'in' operator.
+    # sentence_tokens = list(filter(
+    #     lambda _token: f'<sent' in _token,
+    #     special_tokens),
+    # )
+    # sentence_token_ids = tokenizer.convert_tokens_to_ids(sentence_tokens)
+
+    if len(input_ids.shape) == 1:
+        input_ids = np.expand_dims(input_ids, axis=0)
+
     _, target_sequence_length = target_ids.shape
 
     # create the encoder's self attention mask
@@ -920,14 +925,14 @@ def create_attention_mask(
         input_ids=input_ids,
         input_token_type_ids=input_token_type_ids,
         tokenizer=tokenizer,
-        sentence_token_ids=sentence_token_ids,
+        sentence_token_ids=tokenizer.get_sentence_token_ids(),
     )
 
     # create the cross-attention mask from decoder to encoder
     batch_cross_attention_mask = create_cross_attention_mask(
         input_ids=input_ids,
         target_ids=target_ids,
-        sentence_token_ids=sentence_token_ids,
+        sentence_token_ids=tokenizer.get_sentence_token_ids(),
         tokenizer=tokenizer,
     )
 
@@ -935,7 +940,7 @@ def create_attention_mask(
     batch_decoder_self_attention_mask = create_decoder_self_attention_mask(
         target_ids=target_ids,
         target_token_type_ids=target_token_type_ids,
-        sentence_token_ids=sentence_token_ids,
+        sentence_token_ids=tokenizer.get_sentence_token_ids(),
         tokenizer=tokenizer,
     )
 
@@ -1066,11 +1071,36 @@ def create_model_input_for_corrupted_batch(
                 # Represent the token types for both the sentinel and the input token.
                 example_label_token_type_ids.extend([input_token_type_ids] * 2)
 
-        modified_input_ids.append(_pad_or_truncate(example_input_ids, padded_sequence_length))
-        modified_input_token_type_ids.append(_pad_or_truncate(example_input_token_type_ids, padded_sequence_length))
-        modified_label_ids.append(_pad_or_truncate(example_label_ids, padded_sequence_length))
-        modified_label_token_type_ids.append(_pad_or_truncate(example_label_token_type_ids, padded_sequence_length))
-    return modified_input_ids, modified_input_token_type_ids, modified_label_ids, modified_label_token_type_ids
+        modified_input_ids.append(
+            _pad_or_truncate(
+                example_input_ids,
+                padded_sequence_length,
+            )
+        )
+        modified_input_token_type_ids.append(
+            _pad_or_truncate(
+                example_input_token_type_ids,
+                padded_sequence_length,
+            )
+        )
+        modified_label_ids.append(
+            _pad_or_truncate(
+                example_label_ids,
+                padded_sequence_length,
+            )
+        )
+        modified_label_token_type_ids.append(
+            _pad_or_truncate(
+                example_label_token_type_ids,
+                padded_sequence_length,
+            )
+        )
+    return (
+        modified_input_ids,
+        modified_input_token_type_ids,
+        modified_label_ids,
+        modified_label_token_type_ids,
+    )
 
 
 def shuffle_inputs(
@@ -1217,3 +1247,4 @@ def shuffle_inputs(
 #         modified_label_ids,
 #         torch.tensor(modified_label_token_type_ids, dtype=torch.long),
 #     )
+

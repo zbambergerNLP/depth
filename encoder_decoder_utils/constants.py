@@ -111,6 +111,9 @@ class Metric(enum.Enum):
     SECONDS_PER_STEP: str = 'seconds_per_step'
     TIME: str = 'time'
 
+#
+# @dataclasses.dataclass
+# class CountMetricConstants(Metric):
     # Data/Tokenization metrics.
     AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT: str = 'average_non_padding_tokens_per_example_input'
     VARIANCE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT: str = 'variance_non_padding_tokens_per_example_input'
@@ -119,7 +122,10 @@ class Metric(enum.Enum):
     NUM_NON_PADDING_TOKENS_IN_BATCH_INPUT: str = 'num_non_padding_tokens_in_batch_input'
     NUM_NON_PADDING_TOKENS_IN_BATCH_LABEL: str = 'num_non_padding_tokens_in_batch_label'
 
-    # Example-level metrics
+
+# @dataclasses.dataclass
+# class ExampleMetricConstants(Metric):
+    # Example-level metric names
     EXAMPLE_ACCURACY: str = 'example_accuracy'
     EXAMPLE_F1: str = 'example_f1'
     EXAMPLE_PRECISION: str = 'example_precision'
@@ -128,14 +134,31 @@ class Metric(enum.Enum):
     EXAMPLE_SPEARMAN: str = 'example_spearman'
     EXAMPLE_PEARSON: str = 'example_pearson'
 
+# @dataclasses.dataclass
+# class TokenMetricConstants(Metric):
+    # Token-level metric names
+    TOKEN_ACCURACY: str = 'token_accuracy'
+    TOKEN_F1: str = 'token_f1'
+    TOKEN_PRECISION: str = 'token_precision'
+    Token_RECAll: str = 'token_recall'
+    TOKEN_MCC: str = 'token_mcc'
+    TOKEN_SPEARMAN: str = 'token_spearman'
+    TOKEN_PEARSON: str = 'token_pearson'
 
-class DepthMetric(enum.Enum):
+
+# class DepthMetric(enum.Enum):
     AVERAGE_LOSS_ON_SENTENCE_TOKENS: str = 'average_loss_on_sentence_tokens'
     VARIANCE_LOSS_ON_SENTENCE_TOKENS: str = 'variance_loss_on_sentence_tokens'
     AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'average_loss_on_non_sentence_tokens'
     VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'variance_loss_on_non_sentence_tokens'
     SENTENCE_ACCURACY: str = 'sentence_accuracy'
     RECONSTRUCTION_ACCURACY: str = 'reconstruction_accuracy'
+
+
+@dataclasses.dataclass
+class RawTrainingExampleConstants:
+    PREPROCESSED_COLUMN_NAMES: typing.Tuple[str] = ('idx', 'processed_inputs', 'processed_outputs')
+    TEXT_COLUMN_NAME: str = 'text'
 
 
 @dataclasses.dataclass
@@ -156,7 +179,17 @@ class TokenizerConstants:
     TOKEN_TYPE_IDS: str = 'token_type_ids'
     SPECIAL_TOKENS_MASK: str = 'special_tokens_mask'
     INPUT_LENGTH: str = 'input_length'
+    TARGET_LENGTH: str = 'target_length'
     NUM_TRUNCATED_TOKENS: str = 'num_truncated_tokens'
+
+@dataclasses.dataclass
+class DepthDataCollatorConstants:
+    MEAN_NOISE_SPAN_LENGTH: str = 'mean_noise_span_length'
+    NOISE_DENSITY: str = 'noise_density'
+    PMI_VOCAB: str = 'pmi_vocab'
+    INPUT_TOKEN_TYPE_IDS: str = 'input_token_type_ids'
+    TARGET_IDS: str = 'target_ids'
+    TARGET_TOKEN_TYPE_IDS: str = 'target_token_type_ids'
 
 
 @dataclasses.dataclass
@@ -167,16 +200,17 @@ class T5TokenizerConstants(TokenizerConstants):
     PAD_TOKEN_ID: int = -100
     TEXT_COLUMN_NAME: str = 'text'
     SENTENCE_PIECE_UNDERSCORE: str = '▁'
+    OVERFLOWING_TOKENS: str = 'overflowing_tokens'
+    ADDITIONAL_SPECIAL_TOKENS: str = 'additional_special_tokens'
 
 
-# TODO: Add a UL2 tokenizer class.
+#TODO: Add a UL2 tokenizer class.
 
 class DEPTHTokenizerConstants(T5TokenizerConstants):
     SENTENCE_TOKEN: str = "SENT"
     SENT: str = "sent"
     SENT_TOKEN: str = '<sent>'
     END_OF_SENTENCE_TOKEN: str = "<eosen>"
-    ADDITIONAL_SPECIAL_TOKENS: str = 'additional_special_tokens'
     NUM_SENT_TOKENS: int = 20
 
 
@@ -198,3 +232,38 @@ class OptimizerConstants:
 @dataclasses.dataclass(frozen=True)
 class SchedulerConstants:
     NO_DECAY: typing.Tuple[str] = ("bias", "LayerNorm", "layernorm", "layer_norm", "ln")
+
+@dataclasses.dataclass(frozen=True)
+class UnitTestConstants:
+
+    ########################
+    ### Unit test inputs ###
+    ########################
+
+    TESTCASE_NAME: str = 'testcase_name'
+    TEXT: str = 'text'
+    BATCH_OF_TEXT: str = 'batch_of_text'
+    EXAMPLES: str = 'examples'
+    SEED: str = 'seed'
+
+    ###################################
+    ### Unit test expected results  ###
+    ###################################
+
+    EXPECTED_RESULT: str = 'expected_result'
+
+    # Span-Masking
+    EXPECTED_SPAN_MASKS: str = 'expected_span_masks'
+    EXPECTED_INPUT_IDS: str = 'expected_input_ids'
+    EXPECTED_INPUT_IDS_SENTINEL: str = 'expected_input_ids_sentinel'
+    EXPECTED_MODIFIED_INPUT_IDS: str = 'expected_modified_input_ids'
+    EXPECTED_MODIFIED_LABEL_IDS: str = 'expected_modified_label_ids'
+
+    # Sentence shuffling
+    EXPECTED_TOKEN_TYPE_IDS: str = 'expected_token_type_ids'
+    EXPECTED_LABEL_TOKEN_TYPE_IDS: str = 'expected_label_token_type_ids'
+
+    # Attention masks
+    EXPECTED_ENCODER_SELF_ATTENTION_MASK: str = 'expected_encoder_self_attention_mask'
+    EXPECTED_DECODER_SELF_ATTENTION_MASK: str = 'expected_decoder_self_attention_mask'
+    EXPECTED_CROSS_ATTENTION_MASK: str = 'expected_cross_attention_mask'
