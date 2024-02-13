@@ -58,11 +58,11 @@ model:
   checkpoint_path: ''
 
   # If true, the model will be randomly initialized. Otherwise, it will be initialized from the checkpoint
-  random_init: true
+  random_init: false
 
   # If true, optimize distributed training for the model with torch 2.0's new 'compile' feature.
   # NOTE: this option makes training generally faster, but has a few-minute overhead at the beginning of training.
-  compile: true # Pytorch 2.0
+  compile: false # Pytorch 2.0
 
 dataset:
 
@@ -157,7 +157,7 @@ optim:
   epochs: -1
 
   # The number of warmup steps to use for the optimizer.
-  warmup_steps: 10_000
+  warmup_steps: 5_000
 
   # The learning rate scheduler to use. Options are: 'linear', 'cosine', 'legacy', and 'constant'
   #

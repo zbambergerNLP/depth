@@ -1,5 +1,7 @@
 import math
+import typing
 from typing import Iterable, Tuple
+
 import torch
 import transformers
 import omegaconf
@@ -10,8 +12,9 @@ from encoder_decoder_utils.constants import (
     OptimizerConstants,
     SchedulerConstants,
 )
-
 from encoder_decoder_utils.logging_utils import Logger
+from encoder_decoder_utils.t5_model import DepthForConditionalGeneration
+
 
 class AdamWScale(torch.optim.Optimizer):
     """
@@ -40,7 +43,7 @@ class AdamWScale(torch.optim.Optimizer):
 
     def __init__(
         self,
-        params: Iterable[torch.nn.parameter.Parameter],
+        params: Iterable[typing.Dict[str, torch.Tensor]],
         lr: float = 1e-3,
         betas: Tuple[float, float] = (0.9, 0.999),
         eps: float = 1e-6,
@@ -153,6 +156,7 @@ class AdamWScale(torch.optim.Optimizer):
                     p.data.add_(p.data, alpha=(-group[OptimizerConstants.LR] * group[OptimizerConstants.WEIGHT_DECAY]))
         return loss
 
+
 def get_lr_scheduler(
         optimizer: torch.optim.Optimizer,
         args: omegaconf.DictConfig,
@@ -167,6 +171,15 @@ def get_lr_scheduler(
     :return: The learning rate scheduler.
     """
     logger.log_message(f'Using lr scheduler: {args.optim.lr_scheduler}')
+    # if args.deepspeed.use_deepspeed:
+    #     logger.log_message(
+    #         f'Using DeepSpeed Dummy scheduler with total steps {args.optim.total_steps} '
+    #         f'and warmup steps {args.optim.warmup_steps}'
+    #     )
+    #     lr_scheduler = accelerate.utils.DummyScheduler(
+    #         optimizer,
+    #         warmup_num_steps=args.optim.warmup_steps,
+    #     )
     if args.optim.lr_scheduler == Scheduler.COSINE.value:
 
         # Scheduler Part 1/2: Linear warmup
@@ -239,8 +252,9 @@ def get_lr_scheduler(
 
     return lr_scheduler
 
+
 def get_optimizer(
-        model: transformers.T5ForConditionalGeneration,
+        model: typing.Union[transformers.T5ForConditionalGeneration, DepthForConditionalGeneration],
         args: omegaconf.DictConfig,
         logger: Logger,
 ) -> torch.optim.Optimizer:
@@ -274,6 +288,13 @@ def get_optimizer(
         },
     ]
 
+    # if args.deepspeed.use_deepspeed:
+    #     logger.log_message('Using DeepSpeed Dummy optimizer')
+    #     optimizer = accelerate.utils.DummyOptim(
+    #         params=optimizer_grouped_parameters,
+    #         lr=args.optim.base_lr,
+    #         weight_decay=args.optim.weight_decay,
+    #     )
     if args.optim.name in [Optimizer.ADAMW.value, Optimizer.ADAMW_HF.value, Optimizer.ADAMW_TORCH.value]:
         logger.log_message('Using AdamW optimizer')
         optimizer = transformers.AdamW(

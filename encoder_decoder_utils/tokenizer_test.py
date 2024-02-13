@@ -27,58 +27,59 @@ class MyTestCase(parameterized.TestCase):
             constants.UnitTestConstants.TESTCASE_NAME: 'No punctuation',
             constants.UnitTestConstants.TEXT: 'Hello world',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_0>Hello world'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}',
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>Hello world{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'),
         },
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Single period',
             constants.UnitTestConstants.TEXT: 'Hello world.',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         '<sent_0>Hello world.'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}',
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>Hello world.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'),
         },
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Multiple sentences (three periods)',
             constants.UnitTestConstants.TEXT: 'first sentence. second sentence. third sentence.',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_0>first sentence.'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                             f'<sent_17>second sentence.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                             f'<sent_15>third sentence.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>first sentence.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_17>second sentence.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_15>third sentence.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            )
         },
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Multiple sentences (multiple punctuation types)',
             constants.UnitTestConstants.TEXT: 'Hello world! I am learning to use tokenizers. '
                                               'Did you know they are this cool?',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_0>Hello world!'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_17>I am learning to use tokenizers.'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_15>Did you know they are this cool?'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>Hello world!{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_17>I am learning to use tokenizers.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_15>Did you know they are this cool?{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            )
         },
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Periods used as part of words',
             constants.UnitTestConstants.TEXT: 'You can call me Dr. Bamberger',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_0>You can call me Dr. Bamberger'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}',
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>You can call me Dr. Bamberger{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            )
         },
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Multi-character punctuations',
             constants.UnitTestConstants.TEXT: 'His lecture was so boring... I couldn\'t help but doze off.',
             constants.UnitTestConstants.SEED: 42,
-            constants.UnitTestConstants.EXPECTED_RESULT: f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_0>His lecture was so boring...'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
-                                                         f'<sent_17>I couldn\'t help but doze off.'
-                                                         f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}',
+            constants.UnitTestConstants.EXPECTED_RESULT: (
+                    f'{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_0>His lecture was so boring...{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+                    f'<sent_17>I couldn\'t help but doze off.{constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN}'
+            ),
         }
     )
     def test_add_sentence_tokens_to_text(
@@ -121,14 +122,17 @@ class MyTestCase(parameterized.TestCase):
     @parameterized.named_parameters([
         {
             constants.UnitTestConstants.TESTCASE_NAME: 'Batch of size 1',
-            constants.UnitTestConstants.BATCH_OF_TEXT: 'Here is a first sentence! This is a second. What about a third? Four is enough!',
+            constants.UnitTestConstants.BATCH_OF_TEXT: [
+                    'Here is a first sentence! This is a second. What about a third? Four is enough!'
+            ],
             constants.UnitTestConstants.SEED: 42,
             constants.UnitTestConstants.EXPECTED_RESULT: {
                 constants.DEPTHTokenizerConstants.INPUT_IDS: np.array(
-                    [[32120, 32100, 947, 19, 3, 9, 166, 7142, 55,
+                    [[32120,
+                      32100, 947, 19, 3, 9, 166, 7142, 55,
                       32120, 32117, 100, 19, 3, 9, 511, 5, 32120,
-                      32115, 363, 81, 3, 9, 1025, 58, 32120, 32101,
-                      5933, 19, 631]]
+                      32115, 363, 81, 3, 9, 1025, 58, 32120,
+                      32101, 5933, 19, 631]]
                 ),
                 constants.DEPTHTokenizerConstants.TOKEN_TYPE_IDS: np.array(
                     [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3,
@@ -155,11 +159,13 @@ class MyTestCase(parameterized.TestCase):
             constants.UnitTestConstants.SEED: 42,
             constants.UnitTestConstants.EXPECTED_RESULT: {
                 constants.DEPTHTokenizerConstants.INPUT_IDS: np.array(
-                    [[32120, 32100, 947, 19, 3, 9, 166, 7142, 55, 32120,
+                    [[32120,
+                      32100, 947, 19, 3, 9, 166, 7142, 55, 32120,
                       32117, 100, 19, 3, 9, 511, 5, 32120,
                       32115, 363, 81, 3, 9, 1025, 58, 32120, 32101,
                       5933, 19, 631],
-                     [32120, 32119, 947, 19, 3, 9, 166, 7142, 55,
+                     [32120,
+                      32119, 947, 19, 3, 9, 166, 7142, 55,
                       32120, 32116, 100, 19, 3, 9, 511, 5, 32120,
                       32115, 363, 81, 3, 9, 1025, 58, 32120, 32105,
                       5933, 19, 631]]

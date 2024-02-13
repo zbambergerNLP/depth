@@ -491,7 +491,7 @@ class CorruptionTest(parameterized.TestCase):
             sequence_length).
         :param seed: The seed for the random number generator.
         """
-        np.random.seed(seed)
+        self.set_seed(seed)
         for example_index in range(input_ids.shape[0]):
             sentence_ids, sentence_start_indices, sentence_lengths = np.unique(
                 token_type_ids[example_index], return_counts=True, return_index=True)
@@ -521,6 +521,22 @@ class CorruptionTest(parameterized.TestCase):
          constants.DepthDataCollatorConstants.NOISE_DENSITY: 0.5,
          constants.UnitTestConstants.SEED: 42,
          constants.DepthDataCollatorConstants.MEAN_NOISE_SPAN_LENGTH: 3,
+         constants.UnitTestConstants.EXPECTED_INPUT_IDS: np.array(
+             [
+                 [
+                     32120, 32100, 21820, 296, 55, 32120,
+                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 ],
+                 [
+                     32120, 32119, 27, 183, 3, 9, 1437, 1036, 18658, 5, 32120,
+                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 ],
+                 [
+                     32120, 32110, 451, 47, 2170, 16, 368, 1060, 6, 68, 59, 16, 8, 690, 5, 32120,
+                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                 ],
+             ]
+         ),
          constants.UnitTestConstants.EXPECTED_MODIFIED_INPUT_IDS: np.array(
              [
                  [
@@ -591,19 +607,67 @@ class CorruptionTest(parameterized.TestCase):
          constants.DepthDataCollatorConstants.NOISE_DENSITY: 0.5,
          constants.UnitTestConstants.SEED: 42,
          constants.DepthDataCollatorConstants.MEAN_NOISE_SPAN_LENGTH: 3,
+         constants.UnitTestConstants.EXPECTED_INPUT_IDS: np.array(
+                [
+                    [
+                        32120, 32100, 8774, 296, 55, 32120,
+                        32117, 27, 183, 1036, 12, 169, 14145, 8585, 7, 5, 32120,
+                        32115, 3963, 25, 214, 79, 33, 48, 1633, 58, 32120,
+                        0, 0, 0,
+                    ],
+                    [
+                        32120, 32119, 978, 7177, 47, 78, 13006, 233, 32120,
+                        32116, 27, 2654, 31, 17, 199, 68, 103, 776, 326, 5, 32120,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    ],
+                    [
+                        32120, 32110, 947, 19, 3, 9, 166, 7142, 55, 32120,
+                        32107, 100, 19, 3, 9, 511, 5, 32120,
+                        32100, 363, 81, 3, 9, 1025, 58, 32120,
+                        32102, 5933, 19, 631,
+                    ],
+                ],
+         ),
          constants.UnitTestConstants.EXPECTED_MODIFIED_INPUT_IDS: np.array(
              [
+                 # Masked tokens in each sentence are:
+                 # Sentence 1:
+                 #      32100 = [8774, 296, 55]
+                 # Sentence 2:
+                 #      32085 = [27, 183]
+                 #      32049 = [169]
+                 # Sentence 3:
+                 #      32071 = [79]
+                 #      32087 = [48]
                  [
                      32120, 32100, 32010, 32120,
                      32117, 32085, 1036, 12, 32049, 14145, 8585, 7, 5, 32120,
                      32115, 3963, 25, 214, 32071, 33, 32087, 1633, 58, 32120,
                      0, 0, 0, 0, 0, 0,
                  ],
+                 # Masked tokens in each sentence are:
+                 # Sentence 1:
+                 #     32038 = [978, 7177]
+                 #     32072 = [78]
+                 #     32056 = [233]
+                 # Sentence 2:
+                 #     32038 = [27, 2654]
                  [
                      32120, 32119, 32038, 47, 32072, 13006, 32056, 32120,
                      32116, 32038, 31, 17, 199, 68, 103, 776, 326, 5, 32120,
                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  ],
+                 # Masked tokens in each sentence are:
+                 # Sentence 1:
+                 #    32041 = [947]
+                 #    32048 = [166, 7142, 55]
+                 # Sentence 2:
+                 #    32044 = [9, 511]
+                 # Sentence 3:
+                 #    32013 = [3, 9]
+                 #    32099 = [58]
+                 # Sentence 4:
+                 #   32047 = [5933, 19, 631]
                  [
                      32120, 32110, 32041, 19, 3, 9, 32048, 32120,
                      32107, 100, 19, 3, 32044, 5, 32120,
@@ -686,6 +750,7 @@ class CorruptionTest(parameterized.TestCase):
             noise_density: float,
             seed: int,
             mean_noise_span_length: int,
+            expected_input_ids: typing.List[typing.List[int]],
             expected_modified_input_ids: typing.List[typing.List[int]],
             expected_token_type_ids: typing.List[typing.List[int]],
             expected_modified_label_ids: typing.List[typing.List[int]],
@@ -701,6 +766,13 @@ class CorruptionTest(parameterized.TestCase):
             truncation=transformers.tokenization_utils_base.TruncationStrategy.ONLY_FIRST,
         )
         input_ids = np.array(batch_encodings[constants.DEPTHTokenizerConstants.INPUT_IDS])
+
+        np.testing.assert_array_equal(
+            input_ids,
+            np.array(expected_input_ids),
+            err_msg=f'Expected input IDs to be {expected_input_ids} but got {input_ids}'
+        )
+
         token_type_ids = np.array(batch_encodings[constants.DEPTHTokenizerConstants.TOKEN_TYPE_IDS])
         batch_size, padded_sequence_length = input_ids.shape
         sequence_lengths = np.sum(np.not_equal(token_type_ids, 0).astype(np.int32), axis=1)
@@ -727,21 +799,14 @@ class CorruptionTest(parameterized.TestCase):
 
         # Identify special tokens.
         special_tokens = self.depth_tokenizer.all_special_ids
-        sentence_tokens = list(
-            filter(
-                lambda token: f'<{constants.DEPTHTokenizerConstants.SENT}' in token,   # Function
-                self.depth_tokenizer.all_special_tokens                                # Iterable
-            )
-        )
-        sentence_tokens.append(constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN)
-        sentence_token_ids = self.depth_tokenizer.convert_tokens_to_ids(sentence_tokens)
+        sentence_token_ids = self.depth_tokenizer.get_sentence_token_and_eosen_ids()
 
         # Ensure mask is only applied to non-special tokens.
         augmented_input_span_mask = np.where(np.isin(input_ids, special_tokens, invert=True), span_mask, False)
 
         # Create a sentinel mask, where 0s indicate a lack of mask, positive values indicate the start of a masked span,
         #  and -1 indicates the continuation of a masked span.
-        input_ids_sentinel = corruption_lib.create_sentinel_ids(
+        input_ids_sentinel = corruption_lib.create_sentinel_ids_for_depth(
             tokenizer=self.depth_tokenizer,
             mask_indices=augmented_input_span_mask.astype(np.int8),
         )
@@ -784,7 +849,8 @@ class CorruptionTest(parameterized.TestCase):
 
 class TestCreateAttentionMask(parameterized.TestCase):
 
-    def set_seed(self, seed: int):
+    @staticmethod
+    def set_seed(seed: int):
         random.seed(seed)
         np.random.seed(seed)
         transformers.set_seed(seed)
@@ -799,235 +865,248 @@ class TestCreateAttentionMask(parameterized.TestCase):
 
     @parameterized.named_parameters(
         {
-            constants.UnitTestConstants.TESTCASE_NAME: "TestSingleSentenceNoPadding",
+            constants.UnitTestConstants.TESTCASE_NAME: "Test single sentence no padding",
             constants.TokenizerConstants.INPUT_IDS: [
-                ["<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>",]
+                ["<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>", "<eos>"]
             ],
-            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1]],
+            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 1]],
             constants.DepthDataCollatorConstants.TARGET_IDS: [
-                ["<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",]
+                ["<pad>", "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",]
             ],
-            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1]],
+            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 1]],
             constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],  # sentence token in the input
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],  # sentence token in the input
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
                 ],
             ],
             constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0],  # sentence token in target
-                    [1, 1, 1, 0, 0],
-                    [1, 1, 1, 1, 0],
-                    [1, 1, 1, 1, 1],
+                    [1, 0, 0, 0, 0, 0],  # Padding token
+                    [1, 1, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],  # sentence token in target attending to sentence token in input
+                    [1, 1, 1, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1, 1],
                 ],
             ],
             constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1],
-                    [0, 1, 0, 0, 0],  # sentence token in target
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],  # Padding token
+                    [1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0],  # sentence token in target attending to sentence token in input
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
                 ],
             ],
         },
         {
-            constants.UnitTestConstants.TESTCASE_NAME: "TestMultipleSentencesNoPadding",
+            constants.UnitTestConstants.TESTCASE_NAME: "Test multiple sentences no padding",
             constants.TokenizerConstants.INPUT_IDS: [
                 [
                     "<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>",
-                    "<sent_9>", "<extra_id_13>", "are", "you?", "<eosen>",
+                    "<sent_9>", "<extra_id_13>", "are", "you?", "<eosen>", "<eos>"
                 ]
             ],
-            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 2, 2, 2, 2, 2]],
+            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2]],
             constants.DepthDataCollatorConstants.TARGET_IDS: [
                 [
-                    "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",
+                    "<pad>", "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",
                     "<sent_9>", "<extra_id_13>", "how", "<eosen>",
                 ]
             ],
-            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 2, 2, 2, 2]],
-            # 10 x 10 attention mask corresponding to the 10 tokens in the input sequence
+            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[0, 1, 1, 1, 1, 1, 2, 2, 2, 2]],
+            # 11 x 11 attention mask corresponding to the 11 tokens in the input sequence
             constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],  # sentence token #17 attending to tokens in sentence 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],  # sentence token #9 attending to tokens in sentence 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 ],
             ],
-            # 9 x 9 attention mask corresponding to the 9 tokens in the target sequence
+            # 10 x 10 attention mask corresponding to the 10 tokens in the target sequence
             constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0],  # sentence token #1
-                    [1, 1, 1, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0],  # sentence token #2
-                    [1, 1, 1, 1, 1, 1, 1, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0], # sentence token #17 attending to previous sentence tokens in target
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 1, 0, 0, 0], # sentence token #9 attending to previous sentence tokens in target
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 ],
             ],
-            # 9 x 10 attention mask corresponding to the 9 tokens in the target sequence attending to 10 tokens in the
+            # 10 x 11 attention mask corresponding to the 10 tokens in the target sequence attending to 11 tokens in the
             # input sequence
             constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0],  # sentence token #1
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0],  # sentence token #2
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # sentence token #17 attending to sentence tokens in input
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # sentence token #9 attending to sentence tokens in input
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 ],
             ],
         },
         {
-            constants.UnitTestConstants.TESTCASE_NAME: "TestSingleSentenceWithPadding",
+            constants.UnitTestConstants.TESTCASE_NAME: "Test single sentence with padding",
             constants.TokenizerConstants.INPUT_IDS: [
                 [
-                    "<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>",
+                    "<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>", "<eos>",
                     "<pad>", "<pad>", "<pad>", "<pad>", "<pad>",
                 ]
             ],
-            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 0, 0, 0, 0, 0]],
+            constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]],
             constants.DepthDataCollatorConstants.TARGET_IDS: [
                 [
-                    "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",
-                    "<pad>", "<pad>", "<pad>", "<pad>",
+                    "<pad>", "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>", "<eos>",
+                    "<pad>", "<pad>", "<pad>",
                 ]
             ],
-            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[1, 1, 1, 1, 1, 0, 0, 0, 0]],
-            # 10 x 10 attention mask corresponding to the 10 tokens in the input sequence
+            constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [[0, 1, 1, 1, 1, 1, 0, 0, 0, 0]],
+            # 11 x 11 attention mask corresponding to the 10 tokens in the input sequence
             constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 1, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 1, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 1, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # End of sentence token
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],  # Sentence token
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # End Of Sequence (<EOS>) token
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
                 ],
             ],
-            # 9 x 9 attention mask corresponding to the 9 (of which 4 are padding) tokens in the target sequence
+            # 10 x 10 attention mask corresponding to the 10 (of which 3 are padding) tokens in the target sequence
             constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 1, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 1, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 1],  # Pad
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # Pad
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0],  # End of sentence (<EOSEN>) token
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],  # Sentence token in target
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0],  # End of sentence (<EOSEN>) token
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0],  # End of sequence (<EOS>) token
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
                  ],
             ],
-            # 9 x 10 attention mask corresponding to the 9 tokens in the target sequence attending to 10 tokens in the
+            # 10 x 11 attention mask corresponding to the 10 tokens in the target sequence attending to 11 tokens in the
             # input sequence
             constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                 ],
             ],
         },
         {
-            constants.UnitTestConstants.TESTCASE_NAME: "TestMultipleSentencesWithPadding",
+            constants.UnitTestConstants.TESTCASE_NAME: "Test multiple sentences with padding",
             constants.TokenizerConstants.INPUT_IDS: [
                 [
-                    "<eosen>", "<sent_17>", "hello", "<extra_id_82>", "<eosen>",
-                "<sent_9>", "<extra_id_13>", "are", "you?", "<eosen>",
-                "<pad>", "<pad>", "<pad>", "<pad>", "<pad>",
+                    "<eosen>",
+                    "<sent_17>", "hello", "<extra_id_82>", "<eosen>",
+                    "<sent_9>", "<extra_id_13>", "are", "you?", "<eosen>", "<eos>",
+                    "<pad>", "<pad>", "<pad>", "<pad>",
                 ]
             ],
-            # Of length 10 + 5 = 15
+            # Of length 11 + 4 = 15
             constants.DepthDataCollatorConstants.INPUT_TOKEN_TYPE_IDS: [
                 [
-                    1, 1, 1, 1, 1,
-                    2, 2, 2, 2, 2,
-                    0, 0, 0, 0, 0,
+                    1,
+                    1, 1, 1, 1,
+                    2, 2, 2, 2, 2, 2,
+                    0, 0, 0, 0,
                 ],
             ],
             constants.DepthDataCollatorConstants.TARGET_IDS: [
                 [
-                    "<eosen>", "<sent_17>", "<extra_id_82>", "world", "<eosen>",
-                    "<sent_9>", "<extra_id_13>", "hello", "<eosen>",
-                    "<pad>", "<pad>", "<pad>", "<pad>",
+                    "<pad>", "<eosen>",
+                    "<sent_17>", "<extra_id_82>", "world", "<eosen>",
+                    "<sent_9>", "<extra_id_13>", "hello", "<eosen>", "<eos>",
+                    "<pad>", "<pad>",
                 ],
             ],
-            # Of length 9 + 4 = 13
+            # Of length 11 + 2 = 13
             constants.DepthDataCollatorConstants.TARGET_TOKEN_TYPE_IDS: [
                 [
-                    1, 1, 1, 1, 1,
-                    2, 2, 2, 2,
-                    0, 0, 0, 0,
+                    0, 0,
+                    1, 1, 1, 1,
+                    2, 2, 2, 2, 2,
+                    0, 0,
                 ],
             ],
             # 15 x 15 attention mask corresponding to the 15 tokens in the input sequence (including padding) attending
             # to 15 tokens in the input sequence (including padding).
             constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eosen>
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # <sent_17> attending to tokens in sentence 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],  # <sent_9> attending to tokens in sentence 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eosen>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eos>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
                 ],
             ],
             # 13 x 15 attention mask corresponding to 13 tokens in the target sequence attending to 15 tokens in the
             # input sequence
             constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
                 [
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eosen>
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # <sent_17> attending to input sentence tokens
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # <sent_9> attending to input sentence tokens
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eosen>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # <eos>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
                 ],
             ],
             # 13 x 13 attention mask corresponding to 13 tokens in the target sequence attending to 13 tokens in the
@@ -1035,18 +1114,18 @@ class TestCreateAttentionMask(parameterized.TestCase):
             constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
                 [
                     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # <sent_17> attending previous sentence tokens in target
                     [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],  # <sent_9> attending previous sentence tokens in target
                     [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
                     [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],  # Pad
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],  # <eosen>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],  # <eos>
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],  # Pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # Pad
                 ],
             ],
         },
@@ -1061,7 +1140,7 @@ class TestCreateAttentionMask(parameterized.TestCase):
             expected_cross_attention_mask: typing.List[typing.List[int]],
             expected_decoder_self_attention_mask: typing.List[typing.List[int]],
     ):
-        """Test the `create_attention_mask` function with various inputs.
+        """Test the `create_depth_attention_masks` function with various inputs.
         :param input_ids: An integer tensor of shape [batch_size, sequence_length] corresponding to input token IDs.
         :param input_token_type_ids: An integer tensor of shape [batch_size, sequence_length] corresponding to sentences
             of each token within input_ids. The token at input_ids[i, j] belongs to sentence input_token_type_ids[i, j].
@@ -1090,7 +1169,7 @@ class TestCreateAttentionMask(parameterized.TestCase):
         target_token_type_ids = np.array(target_token_type_ids)
 
         encoder_self_attention_mask, cross_attention_mask, decoder_self_attention_mask = (
-            corruption_lib.create_attention_mask(
+            corruption_lib.create_depth_attention_masks(
                 tokenized_input_ids,
                 tokenized_target_ids,
                 input_token_type_ids,
@@ -1101,20 +1180,908 @@ class TestCreateAttentionMask(parameterized.TestCase):
         np.testing.assert_almost_equal(
             actual=encoder_self_attention_mask,
             desired=np.array(expected_encoder_self_attention_mask),
-            err_msg=f'Expected encoder self attention mask to be {expected_encoder_self_attention_mask} '
-                    f'but got {encoder_self_attention_mask}'
+            err_msg=f'Expected encoder self attention mask to be {expected_encoder_self_attention_mask}\n'
+                    f'Instead got {encoder_self_attention_mask.tolist()}'
         )
         np.testing.assert_almost_equal(
             actual=cross_attention_mask,
             desired=np.array(expected_cross_attention_mask),
-            err_msg=f'Expected cross attention mask to be {expected_cross_attention_mask} '
-                    f'but got {cross_attention_mask}'
+            err_msg=f'Expected cross attention mask to be {expected_cross_attention_mask}\n'
+                    f'Instead got {cross_attention_mask.tolist()}'
         )
         np.testing.assert_almost_equal(
             actual=decoder_self_attention_mask,
             desired=np.array(expected_decoder_self_attention_mask),
-            err_msg=f'Expected decoder self attention mask to be {expected_decoder_self_attention_mask} '
-                    f'but got {decoder_self_attention_mask}'
+            err_msg=f'Expected decoder self attention mask to be {expected_decoder_self_attention_mask}\n'
+                    f'Instead got {decoder_self_attention_mask.tolist()}'
+        )
+
+class TestDepthCorruption(parameterized.TestCase):
+
+    @staticmethod
+    def set_seed(seed: int):
+        random.seed(seed)
+        np.random.seed(seed)
+        transformers.set_seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    def setUp(self):
+        self.tokenizer = DepthTokenizer.from_pretrained(
+            pretrained_model_name_or_path=constants.ModelHuggingFaceName.T5_BASE.value,
+            max_num_sentences_in_text=constants.DEPTHTokenizerConstants.NUM_SENT_TOKENS,
+        )
+
+    @parameterized.named_parameters(
+        {
+            constants.UnitTestConstants.TESTCASE_NAME: 'three examples with single short sentences',
+            constants.UnitTestConstants.EXAMPLES: [
+                'This is a test sentence.',
+                'Here is a much longer test sentence than the first one.',
+                'And indeed, this is the longest test sentence of them all, as it far exceeds the norm.',
+            ],
+            constants.DepthDataCollatorConstants.NOISE_DENSITY: 0.3,
+            constants.DepthDataCollatorConstants.MEAN_NOISE_SPAN_LENGTH: 3.0,
+            constants.UnitTestConstants.DO_SHUFFLE: False,
+            constants.UnitTestConstants.EXPECTED_INPUT_IDS: [
+                [
+                    32120, 32100, 100, 19, 3, 9, 794, 7142, 5, 32120, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                [
+                    32120, 32119, 947, 19, 3, 9, 231, 1200, 794, 7142, 145, 8, 166, 80, 5, 32120, 1, 0, 0, 0,
+                ],
+                [
+                    32120, 32110, 275, 5071, 6, 48, 19, 8, 14783, 794, 7142, 13, 135, 66, 6, 38, 34, 623, 8193, 7,
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_MODIFIED_INPUT_IDS: [
+                # Sentence 1:
+                #   - 32037 = [7142, 5]
+                [
+                    32120, 32100, 100, 19, 3, 9, 794, 32037, 32120, 1,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                # Sentence 1:
+                #   - 32035 = [80, 5]
+                [
+                    32120, 32119, 947, 19, 3, 9, 231, 1200, 794, 7142, 145, 8, 166, 32035, 32120, 1,
+                    0, 0, 0, 0,
+                ],
+                # Sentence 1:
+                #  - 32091 = [5071, 6]
+                #  - 32049 = [794, 7142, 13, 135]
+                [
+                    32120, 32110, 275, 32091, 48, 19, 8, 14783, 32049, 66, 6, 38, 34, 623, 8193, 7,
+                    0, 0, 0, 0,
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_MODIFIED_LABEL_IDS: [
+                [
+                    32120, 32100, 32037, 7142, 5, 32120,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+                ],
+                [
+                    32120, 32119, 32035, 80, 5, 32120,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+                ],
+                [
+                    32120, 32110, 32091, 5071, 6, 32049, 794, 7142, 13, 135,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_TARGET_IDS: [
+                [
+                    0, 32120, 32100, 32037, 7142, 5, 32120,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                [
+                    0, 32120, 32119, 32035, 80, 5, 32120,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                [
+                    0, 32120, 32110, 32091, 5071, 6, 32049, 794, 7142, 13, 135,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ], [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_LENGTH: 64,
+            constants.UnitTestConstants.EXPECTED_IS_SHUFFLED: False,
+        },
+        {
+            constants.UnitTestConstants.TESTCASE_NAME: "Multiple shuffled sentences with padding and truncation",
+            constants.UnitTestConstants.EXAMPLES: [
+                'First sentence. A second one. My third sentence. Final sentence.',
+                'This is a sentence. Another one. And another.',
+                'Hi Chris! I am Zach. It is is a pleasure to meet you. I am a big fan of your work.',
+            ],
+            constants.DepthDataCollatorConstants.NOISE_DENSITY: 0.3,
+            constants.DepthDataCollatorConstants.MEAN_NOISE_SPAN_LENGTH: 3,
+            constants.UnitTestConstants.DO_SHUFFLE: True,
+            constants.TokenizerConstants.INPUT_LENGTH: 30,
+            constants.TokenizerConstants.TARGET_LENGTH: 30,
+            # Original order of sentence IDs:
+            #
+            #   - example 1: 32100, 32117, 32115, 32101
+            #   - example 2: 32119, 32116, 32115
+            #   - example 3: 32110, 32107, 32100, 32102
+            # Shuffled order of sentence IDs:
+            #
+            #   - example 1: 32101, 32115, 32117, 32100
+            #   - example 2: 32115, 32119, 32116,
+            #   - example 3: 32107, 32100, 32102, 32110
+            constants.UnitTestConstants.EXPECTED_INPUT_IDS: [
+                # Padded example (4 sentences)
+                [
+                    32120,
+                    32100, 1485, 7142, 5, 32120,
+                    32117, 71, 511, 80, 5, 32120,
+                    32115, 499, 1025, 7142, 5, 32120,
+                    32101, 6514, 7142, 5, 32120, 1,
+                    0, 0, 0, 0, 0, 0,
+                ],
+                # Padded example (3 sentences)
+                [
+                    32120,
+                    32119, 100, 19, 3, 9, 7142, 5, 32120,
+                    32116, 2351, 80, 5, 32120,
+                    32115, 275, 430, 5, 32120, 1,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+                ],
+                # Truncated example (4 sentences)
+                [
+                    32120,
+                    32110, 2018, 4409, 55, 32120,
+                    32107, 27, 183, 22045, 5, 32120,
+                    32100, 94, 19, 19, 3, 9, 5565, 12, 942, 25, 5, 32120,
+                    32102, 27, 183, 3, 9, 600
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_MODIFIED_INPUT_IDS: [
+                # Sentence 1 (32101):
+                #  - 32010 = [5]
+                # Sentence 2 (32115):
+                #  No corruption
+                # Sentence 3 (32117):
+                #  No corruption
+                # Sentence 4 (32100):
+                # - 32063 = [1485, 7142, 5]
+                [
+                    32120,
+                    32101, 6514, 7142, 32010, 32120,
+                    32115, 499, 1025, 7142, 5, 32120,
+                    32117, 71, 511, 80, 5, 32120,
+                    32100, 32063, 32120,
+                    1,
+                    0, 0, 0, 0, 0, 0, 0, 0
+                ],
+                # Sentence 1 (32115):
+                #  No corruption
+                # Sentence 2 (32119):
+                #  - 32057 = [19, 3]
+                # Sentence 3 (32116):
+                #  - 32014 = [2351, 80, 5]
+                [
+                    32120,
+                    32115, 275, 430, 5, 32120,
+                    32119, 100, 32057, 9, 7142, 5, 32120,
+                    32116, 32014, 32120,
+                    1,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                # Sentence 1 (32107):
+                #  No corruption
+                # Sentence 2 (32100):
+                #  - 32004 = [9]
+                # Sentence 3 (32102):
+                #  - 32041 = [600]
+                # Sentence 4 (32110):
+                #  - 32023 = [2018, 4409, 55]
+                [
+                    32120,
+                    32107, 27, 183, 22045, 5, 32120,
+                    32100, 94, 19, 19, 3, 32004, 5565, 12, 942, 25, 5, 32120,
+                    32102, 27, 183, 3, 9, 32041, 32120,
+                    32110, 32023, 32120, 1,
+                ]
+            ],
+            constants.UnitTestConstants.EXPECTED_MODIFIED_LABEL_IDS: [
+                [
+                    32120,
+                    32100, 32063, 1485, 7142, 5, 32120,
+                    32117, 32120,
+                    32115, 32120,
+                    32101, 32010, 5, 32120,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+                ],
+                [
+                    32120,
+                    32119, 32057, 19, 3, 32120,
+                    32116, 32014, 2351, 80, 5, 32120,
+                    32115, 32120,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+                ],
+                [
+                    32120,
+                    32110, 32023, 2018, 4409, 55, 32120,
+                    32107, 32120,
+                    32100, 32004, 9, 32120,
+                    32102, 32041, 600,
+                    -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100, -100,
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_TARGET_IDS: [
+                [
+                    0, 32120,
+                    32100, 32063, 1485, 7142, 5, 32120,
+                    32117, 32120, 32115, 32120,
+                    32101, 32010, 5, 32120,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                [
+                    0, 32120,
+                    32119, 32057, 19, 3, 32120,
+                    32116, 32014, 2351, 80, 5, 32120,
+                    32115, 32120,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+                [
+                    0, 32120,
+                    32110, 32023, 2018, 4409, 55, 32120,
+                    32107, 32120,
+                    32100, 32004, 9, 32120,
+                    32102, 32041, 600,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_ENCODER_SELF_ATTENTION_MASK: [
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_DECODER_SELF_ATTENTION_MASK: [
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                ],
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ,0 ,0 ,0 ,0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                ],
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_CROSS_ATTENTION_MASK: [
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # eosen
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # eosen
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # eosen
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                ],
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], # eosen
+                    [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], # sent 1
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], # sent 2
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], # sent 3
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], # sent 4
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],  # pad
+                ],
+            ],
+            constants.UnitTestConstants.EXPECTED_LENGTH: 114,
+            constants.UnitTestConstants.EXPECTED_IS_SHUFFLED: True,
+        }
+    )
+    def test_corrupt_for_depth(
+            self,
+            examples: typing.List[str],
+            noise_density: float,
+            mean_noise_span_length: int,
+            do_shuffle: bool,
+            expected_input_ids: typing.List[typing.List[int]],
+            expected_modified_input_ids: typing.List[typing.List[int]],
+            expected_modified_label_ids: typing.List[typing.List[int]],
+            expected_target_ids: typing.List[typing.List[int]],
+            expected_encoder_self_attention_mask: typing.List[typing.List[typing.List[int]]],
+            expected_decoder_self_attention_mask: typing.List[typing.List[typing.List[int]]],
+            expected_cross_attention_mask: typing.List[typing.List[typing.List[int]]],
+            expected_length: int,
+            expected_is_shuffled: bool,
+            input_length: int = 20,
+            target_length: int = 20,
+            seed: int = 42,
+    ):
+        """
+        Test the corrupt_for_depth method from the corruption module.
+
+        Corruption involves applying T5-esque span corruption, as well as shuffling sentences in the input.
+        Note that Depth's corruption scheme involves creating designed "sentence" and "end of sentence" tokens.
+        Sentence tokens in the input attend strictly to tokens in their own sentence. In the decoder,
+        sentence tokens can only attend to previous sentence tokens (i.e., those that appeared in the encoder, or
+        earlier in the decoder).
+
+        :param examples: A list of string examples to tokenize and corrupt.
+        :param noise_density: The density of noise to add to the input. This is a float between 0 and 1, where 0 means
+            no noise and 1 means all noise.
+        :param mean_noise_span_length: The mean length of noise spans to add to the input.
+        :param do_shuffle: Whether to shuffle the input.
+        :param expected_input_ids: The expected input IDs after tokenization, and before corruption.
+        :param expected_modified_input_ids: The expected input IDs after corruption.
+        :param expected_modified_label_ids: The expected label IDs after corruption.
+        :param expected_target_ids: The expected target IDs after corruption.
+        :param expected_encoder_self_attention_mask: The expected encoder self-attention mask after span corruption and
+            shuffling.
+        :param expected_decoder_self_attention_mask: The expected decoder self-attention mask after span corruption and
+            shuffling.
+        :param expected_cross_attention_mask: The expected cross-attention mask after corruption.
+        :param expected_length: The expected length of the corrupted batch. This accounts for both the input and target
+            lengths, not including padding.
+        :param expected_is_shuffled: Whether the corrupted batch is expected to be shuffled.
+        :param input_length: The maximum length of the input.
+        :param target_length: The maximum length of the target.
+        :param seed: The random seed to use for reproducibility.
+        """
+        self.set_seed(seed)
+        tokenized_examples = self.tokenizer(
+            examples,
+            max_length=input_length,
+            padding=True,
+            truncation=True,
+            return_tensors='np',
+        )
+        np.testing.assert_array_equal(
+            tokenized_examples[constants.TokenizerConstants.INPUT_IDS],
+            np.array(expected_input_ids),
+            err_msg=f'Input IDs are not as expected.\n'
+                    f'Expected: {expected_input_ids}\n'
+                    f'Actual: {tokenized_examples[constants.TokenizerConstants.INPUT_IDS]}'
+        )
+        np_batch_encoding = transformers.BatchEncoding(
+            {
+                constants.TokenizerConstants.INPUT_IDS: np.array(
+                    tokenized_examples[constants.TokenizerConstants.INPUT_IDS]
+                ),
+                constants.TokenizerConstants.TOKEN_TYPE_IDS: np.array(
+                    tokenized_examples[constants.TokenizerConstants.TOKEN_TYPE_IDS]
+                ),
+            }
+        )
+        corrupted_batch = corruption_lib.corrupt_for_depth(
+            examples=np_batch_encoding,
+            tokenizer=self.tokenizer,
+            pad_token_id=self.tokenizer.pad_token_id,
+            decoder_start_token_id=self.tokenizer.pad_token_id,
+            noise_density=noise_density,
+            mean_noise_span_length=mean_noise_span_length,
+            do_shuffle=do_shuffle,
+            input_length=input_length,
+            target_length=target_length,
+        )
+        input_ids = corrupted_batch[constants.TokenizerConstants.INPUT_IDS]
+        label_ids = corrupted_batch[constants.TokenizerConstants.LABELS]
+        target_ids = corrupted_batch[constants.DepthDataCollatorConstants.TARGET_IDS]
+        encoder_self_attention_mask = corrupted_batch[constants.DepthDataCollatorConstants.ENCODER_ATTENTION_MASK]
+        decoder_self_attention_mask = corrupted_batch[constants.DepthDataCollatorConstants.DECODER_ATTENTION_MASK]
+        cross_attention_mask = corrupted_batch[constants.DepthDataCollatorConstants.CROSS_ATTENTION_MASK]
+
+        np.testing.assert_array_equal(
+            input_ids,
+            np.array(expected_modified_input_ids),
+            err_msg=f'Corrupted input IDs are not as expected.\n'
+                    f'Expected: {expected_modified_input_ids}\n'
+                    f'Actual: {input_ids.tolist()}'
+        )
+        np.testing.assert_array_equal(
+            label_ids,
+            np.array(expected_modified_label_ids),
+            err_msg=f'Corrupted target IDs are not as expected.\n'
+                    f'Expected: {expected_modified_label_ids}\n'
+                    f'Actual: {label_ids.tolist()}'
+        )
+        np.testing.assert_array_equal(
+            target_ids,
+            np.array(expected_target_ids),
+            err_msg=f'Target IDs are not as expected.\n'
+                    f'Expected: {expected_target_ids}\n'
+                    f'Actual: {target_ids.tolist()}'
+        )
+        np.testing.assert_array_equal(
+            encoder_self_attention_mask,
+            np.array(expected_encoder_self_attention_mask),
+            err_msg=f'Encoder self-attention mask is not as expected.\n'
+                    f'Expected: {expected_encoder_self_attention_mask}\n'
+                    f'Actual: {encoder_self_attention_mask.tolist()}'
+        )
+        np.testing.assert_array_equal(
+            decoder_self_attention_mask,
+            np.array(expected_decoder_self_attention_mask),
+            err_msg=f'Decoder self-attention mask is not as expected.\n'
+                    f'Expected: {expected_decoder_self_attention_mask}\n'
+                    f'Actual: {decoder_self_attention_mask.tolist()}'
+        )
+        np.testing.assert_array_equal(
+            cross_attention_mask,
+            np.array(expected_cross_attention_mask),
+            err_msg=f'Cross-attention mask is not as expected.\n'
+                    f'Expected: {expected_cross_attention_mask}\n'
+                    f'Actual: {cross_attention_mask.tolist()}'
+        )
+        # Length has shape (batch_size, 1)
+        self.assertEqual(
+            corrupted_batch[constants.DepthDataCollatorConstants.LENGTH][0][0],
+            expected_length,
+            f'Length is not as expected.\n'
+            f'Expected: {expected_length}\n'
+            f'Actual: {corrupted_batch[constants.DepthDataCollatorConstants.LENGTH][0][0]}'
+        )
+        # Is_shuffled has shape (batch_size, 1)
+        self.assertEqual(
+            corrupted_batch[constants.DepthDataCollatorConstants.IS_SHUFFLED][0][0],
+            expected_is_shuffled,
+            f'Is shuffled is not as expected.\n'
+            f'Expected: {expected_is_shuffled}\n'
+            f'Actual: {corrupted_batch[constants.DepthDataCollatorConstants.IS_SHUFFLED][0][0]}'
         )
 
 

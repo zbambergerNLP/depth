@@ -1,53 +1,29 @@
 import typing
-
-import torch
 import datasets
-from torch.utils.data import DataLoader
-from omegaconf import open_dict
-from datasets.iterable_dataset import IterableDataset
 from transformers import (
     AutoTokenizer,
-    T5ForConditionalGeneration,
-    AutoConfig,
 )
 import omegaconf
 import transformers
 
-from encoder_decoder_utils.data_utils import (
-    tokenize_function,
-    tokenizer_function_t5_pre_training,
-    tokenizer_function_depth_pre_training
-)
-
-from encoder_decoder_utils.t5_model import (
-    MyT5,
-    # Depth,
-    DepthForConditionalGeneration
-)
-
-from encoder_decoder_utils.constants import (
-    ModelImplementation,
-    TrainingPhase,
-    DatasetSplit,
-    T5TokenizerConstants,
-    ModelHuggingFaceName, DEPTHTokenizerConstants,
-)
-
-from encoder_decoder_utils.data_collator_utils import (
-    T5DataCollator,
-    DEPTHDataCollator,
-)
+from encoder_decoder_utils import constants
+from encoder_decoder_utils import data_utils
+from encoder_decoder_utils import t5_model
+from encoder_decoder_utils import data_collator_utils
 
 from encoder_decoder_utils.logging_utils import Logger
-
 from encoder_decoder_utils.tokenizer_utils import DepthTokenizer
 
 
 def get_model(
         args: omegaconf.DictConfig,
-        config: transformers.AutoConfig,
+        config: transformers.PretrainedConfig,
         logger: Logger,
-) -> torch.nn.Module:
+        tokenizer: transformers.PreTrainedTokenizer,
+) -> typing.Union[
+    transformers.T5ForConditionalGeneration,
+    t5_model.DepthForConditionalGeneration,
+]:
     """
     Either create or load a T5 model for conditional generation.
 
@@ -60,6 +36,7 @@ def get_model(
     :param args: The omegaconf configuration used to generate the model.
     :param config: The model configuration. See `get_config` for more details.
     :param logger: The logger. See `logging_utils.py` for more details.
+    :param tokenizer: The tokenizer used to tokenize the inputs and outputs.
     :return: A T5 model for conditional generation.
     """
 
@@ -67,10 +44,9 @@ def get_model(
     # TODO: Review the following code. We may want to customize the hydra and omegaconf code to make this cleaner.
     #  Furthermore, we want to support more than just a T5 architecture (e.g., support DEPTH and UL2 in additional to
     #  the basic T5 architecture).
-    model_implementation: torch.nn.Module = {
-        ModelImplementation.HUGGINGFACE_T5.value: transformers.T5ForConditionalGeneration,  # HuggingFace T5
-        ModelImplementation.LOCAL_T5.value: MyT5,  # TODO: Consider using Megatron LM for this.
-        ModelImplementation.DEPTH.value: DepthForConditionalGeneration,
+    model_implementation = {
+        constants.ModelImplementation.HUGGINGFACE_T5.value: transformers.T5ForConditionalGeneration,  # HuggingFace T5
+        constants.ModelImplementation.DEPTH.value: t5_model.DepthForConditionalGeneration,
     }[args.model.model_implementation]
 
     # Randomly initialize the model
@@ -83,15 +59,15 @@ def get_model(
 
         # If the model is DEPTH, load a T5 model from HuggingFace, and then load the weights into DEPTH
         if (
-                args.model.model_implementation == ModelImplementation.DEPTH.value or
-                args.model.model_implementation == ModelImplementation.LOCAL_T5.value
+                args.model.model_implementation == constants.ModelImplementation.DEPTH.value or
+                args.model.model_implementation == constants.ModelImplementation.LOCAL_T5.value
         ):
             logger.log_message(f'Loading model from pretrained: {args.model.name}')
-            t5_model = transformers.T5ForConditionalGeneration.from_pretrained(
+            base_model = transformers.T5ForConditionalGeneration.from_pretrained(
                 args.model.name,
                 config=config,
             )
-            weights = t5_model.state_dict()
+            weights = base_model.state_dict()
             model = model_implementation(config)
             model.load_state_dict(weights)
 
@@ -102,6 +78,15 @@ def get_model(
                 args.model.name,
                 config=config,
             )
+
+    # Resize the model's input and output embeddings if the tokenizer's vocabulary size is different from the model's
+    if len(tokenizer) != model.config.vocab_size:
+        logger.log_message(
+            f'Resizing model embeddings (from {model.config.vocab_size}) to match tokenizer vocabulary size: '
+            f'{len(tokenizer)}')
+        model.resize_token_embeddings(len(tokenizer))
+    else:
+        logger.log_message(f'Model embeddings match tokenizer vocabulary size: {len(tokenizer)}')
 
     # Save the number of parameters in the model to the args
     with omegaconf.open_dict(args):
@@ -114,7 +99,7 @@ def get_model(
 def get_config(
         args: omegaconf.DictConfig,
         logger: Logger,
-) -> transformers.AutoConfig:
+) -> transformers.PretrainedConfig:
     """
     Get the model configuration, which is used to initialize the model.
 
@@ -140,10 +125,11 @@ def get_config(
 
     return config
 
+
 def get_tokenizer(
         args: omegaconf.DictConfig,
         logger: Logger,
-) -> transformers.AutoTokenizer:
+) -> transformers.PreTrainedTokenizer:
     """
     Get the tokenizer. This is used to tokenize the input data.
     :param args: The omegaconf configuration used to generate the tokenizer.
@@ -153,7 +139,7 @@ def get_tokenizer(
     # TODO: Enable custom tokenizer
     logger.log_message(f'Loading {args.model.tokenizer} tokenizer')
 
-    if args.model.model_implementation == ModelImplementation.DEPTH.value:
+    if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
         tokenizer = DepthTokenizer.from_pretrained(
             args.model.name,
             use_fast=True,
@@ -181,21 +167,22 @@ def load_dataset_splits(
     """
     logger.log_message(f'Loading dataset {args.dataset.name} from {args.dataset.path}')
 
-    if args.mode == TrainingPhase.PT.value:
+    if args.mode == constants.TrainingPhase.PT.value:
 
         # TODO: Enable loading multiple datasets and interweaving them.
         dataset = datasets.load_dataset(
             path=args.dataset.path,
             name=args.dataset.name,
             streaming=args.dataset.streaming,
+            trust_remote_code=args.dataset.path in constants.TRUSTED_DATASETS,
         )
 
         dataset = dataset.remove_columns(
             args.dataset.columns_to_remove
         )
 
-        training_set = dataset[DatasetSplit.TRAIN.value]
-        validation_set = dataset[DatasetSplit.VALIDATION.value]
+        training_set = dataset[constants.DatasetSplit.TRAIN.value]
+        validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
 
         # If specified, take a subset of the training and validation sets
         if args.dataset.training_set.num_examples > -1:
@@ -209,16 +196,16 @@ def load_dataset_splits(
 
         # We want to use the validation set as the test set
         dataset_splits = {
-            DatasetSplit.TRAIN.value: training_set,
-            DatasetSplit.TEST.value: validation_set,
+            constants.DatasetSplit.TRAIN.value: training_set,
+            constants.DatasetSplit.TEST.value: validation_set,
         }
 
         assert (
-            dataset[DatasetSplit.TRAIN.value].n_shards == args.dataset.num_shards
+            dataset[constants.DatasetSplit.TRAIN.value].n_shards == args.dataset.num_shards
         ), "We want to have many shards for efficient processing with num_workes in PyTorch dataloader"
 
     # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
-    elif args.mode == TrainingPhase.FT.value:
+    elif args.mode == constants.TrainingPhase.FT.value:
         raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
 
     else:
@@ -230,7 +217,7 @@ def load_dataset_splits(
 def process_dataset(
         dataset_splits: typing.Dict[str, datasets.Dataset],
         args: omegaconf.DictConfig,
-        tokenizer: transformers.AutoTokenizer,
+        tokenizer: transformers.PreTrainedTokenizer,
         logger: Logger,
 ) -> typing.Dict[str, datasets.Dataset]:
     """
@@ -245,52 +232,35 @@ def process_dataset(
     """
     logger.log_message('Processing dataset splits')
 
-    if args.mode == TrainingPhase.PT.value:
+    if args.mode == constants.TrainingPhase.PT.value:
         logger.log_message('Pre-processing for pre-training')
         final_datasets = {}
 
         for split, dataset_split in dataset_splits.items():
-
-            # We increase the input_length, because instead of masking tokens T5 replaces
-            # masked spans with a single token, therefore to avoid padding we need to have
-            # longer sequences at the start, before masking
-            # before_mask_input_length, target_length = compute_input_and_target_lengths(
-            #     inputs_length=args.data.input_length,
-            #     noise_density=args.data.mlm_probability,
-            #     mean_noise_span_length=args.data.mean_noise_span_length,
-            # )
-            # logger.log_message(
-            #     f'Input_length: {args.data.input_length}\n'
-            #     f'Before Mask Input Length: {before_mask_input_length}\n'
-            #     f'Target Length: {target_length}'
-            # )
-            # with open_dict(args):
-            #     args.data.before_mask_input_length = before_mask_input_length
-            #     args.data.target_length = target_length
 
             # Merge multiple examples into each input of the language model
             # TODO: Pass in the name of the text column in the dataset. It may not always be 'text'
             if args.dataset.merge_examples:
                 logger.log_message('Tokenizing for T5 with merging examples')
                 dataset_split = dataset_split.map(
-                    tokenize_function,
+                    data_utils.tokenize_function,
                     batched=True,
                     fn_kwargs={
-                        T5TokenizerConstants.TOKENIZER: tokenizer,
-                        T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
                     },
                     remove_columns=[args.dataset.text_column]
                 )
 
             # TODO: Add support for DEPTH tokenizer
-            elif args.model.model_implementation == ModelImplementation.DEPTH.value:
+            elif args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
                 logger.log_message('Tokenizing for DEPTH without merging examples')
                 dataset_split = dataset_split.map(
-                    tokenizer_function_depth_pre_training,
+                    data_utils.tokenizer_function_depth_pre_training,
                     batched=True,
                     fn_kwargs={
-                        T5TokenizerConstants.TOKENIZER: tokenizer,
-                        T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
                     },
                     remove_columns=[args.dataset.text_column],
                 )
@@ -299,11 +269,11 @@ def process_dataset(
             else:
                 logger.log_message('Tokenizing for T5 without merging examples')
                 dataset_split = dataset_split.map(
-                    function=tokenizer_function_t5_pre_training,
+                    function=data_utils.tokenizer_function_t5_pre_training,
                     batched=True,
                     fn_kwargs={
-                        T5TokenizerConstants.TOKENIZER: tokenizer,
-                        T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
                     },
                     remove_columns=[args.dataset.text_column],
                 )
@@ -311,7 +281,7 @@ def process_dataset(
             dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
             final_datasets[split] = dataset_split
 
-    elif args.mode == TrainingPhase.FT.value:
+    elif args.mode == constants.TrainingPhase.FT.value:
         logger.log_message('Pre-processing for fine-tuning')
 
         # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
@@ -328,11 +298,14 @@ def process_dataset(
 
 
 def get_data_collator(
-        tokenizer: transformers.AutoTokenizer,
-        config: transformers.AutoConfig,
+        tokenizer: typing.Union[transformers.PreTrainedTokenizer, DepthTokenizer],
+        config: transformers.PretrainedConfig,
         args: omegaconf.DictConfig,
         logger: Logger,
-) -> typing.Union[T5DataCollator, DEPTHDataCollator]:
+) -> typing.Union[
+    data_collator_utils.T5DataCollator,
+    data_collator_utils.DEPTHDataCollator,
+]:
     """
     Get the data collator. This is used to collate the data into batches.
 
@@ -342,35 +315,35 @@ def get_data_collator(
     :param logger: The logger. See `logging_utils.py` for more details.
     :return: The data collator.
     """
-    if args.mode == TrainingPhase.PT.value:
-        if args.data.data_collator == 'custom_t5':
+    if args.mode == constants.TrainingPhase.PT.value:
+        if args.data.data_collator == 'custom_t5':  # TODO: Make this a constant
             logger.log_message('Using custom T5 data collator')
-            data_collator = T5DataCollator(
+            data_collator = data_collator_utils.T5DataCollator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
                 mean_noise_span_length=args.data.mean_noise_span_length,
                 input_length=args.data.input_length,
                 target_length=args.data.target_length,
-                pad_token_id=config.pad_token_id,
-                decoder_start_token_id=config.decoder_start_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+                decoder_start_token_id=tokenizer.pad_token_id,
             )
-        elif args.data.data_collator == 'depth':
+        elif args.data.data_collator == constants.ModelImplementation.DEPTH.value:
             logger.log_message('Using custom DEPTH data collator')
-            data_collator = DEPTHDataCollator(
+            data_collator = data_collator_utils.DEPTHDataCollator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
                 mean_noise_span_length=args.data.mean_noise_span_length,
                 input_length=args.data.input_length,
                 target_length=args.data.target_length,
-                pad_token_id=config.pad_token_id,
-                decoder_start_token_id=config.decoder_start_token_id,
+                pad_token_id=tokenizer.pad_token_id,
+                decoder_start_token_id=tokenizer.pad_token_id,
                 sentence_shuffling_probability=args.data.sentence_shuffling_probability
             )
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')
 
     # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
-    elif args.mode == TrainingPhase.FT.value:
+    elif args.mode == constants.TrainingPhase.FT.value:
         raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
 
     else:

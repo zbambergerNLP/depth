@@ -47,14 +47,9 @@ UNEVEN_SEQUENCES_FOR_BATCH_MSG = (
 )
 
 logger = logging.getLogger(__name__)
-# SENT = 'sent'
-# SENT_TOKEN = '<sent>'
-# END_OF_SENTENCE_TOKEN = '<eosen>'
-# CLS = 'cls'
-# CLS_TOKEN = '<cls>'
-# ADDITIONAL_SPECIAL_TOKENS = 'additional_special_tokens'
 nltk.download('punkt')
 
+# TODO: Migrate the following constants to the constants file.
 # Truncation and Padding
 TRUNCATION_LONGEST_FIRST = 'longest_first'
 PADDING_LONGEST = 'longest'
@@ -195,6 +190,19 @@ class DepthTokenizer(T5TokenizerFast):
 
     def get_sentence_token_ids(self):
         return self.convert_tokens_to_ids(self.get_sentence_tokens())
+
+    def get_sentence_token_and_eosen_ids(self):
+        sentence_tokens = self.get_sentence_tokens()
+        sentence_tokens.append(DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN)
+        return self.convert_tokens_to_ids(sentence_tokens)
+
+    @property
+    def end_of_sentence_token(self):
+        return DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN
+
+    @property
+    def end_of_sentence_token_id(self):
+        return self.convert_tokens_to_ids(self.end_of_sentence_token)
 
 
     def add_sentence_tokens_to_text(
@@ -443,6 +451,17 @@ class DepthTokenizer(T5TokenizerFast):
             if return_tensors == "pt" and not isinstance(value, torch.Tensor):
                 try:
                     batch_outputs[key] = torch.tensor(value)
+                except ValueError:
+                    raise ValueError(UNEVEN_SEQUENCES_FOR_BATCH_MSG)
+                except RuntimeError:
+                    if None in [item for sequence in value for item in sequence]:
+                        raise ValueError(NO_PAD_TOKEN_FOR_BATCH_MSG)
+                    else:
+                        raise
+            
+            if return_tensors == 'np' and not isinstance(value, np.ndarray):
+                try:
+                    batch_outputs[key] = np.array(value)
                 except ValueError:
                     raise ValueError(UNEVEN_SEQUENCES_FOR_BATCH_MSG)
                 except RuntimeError:

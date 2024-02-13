@@ -1,4 +1,6 @@
 import copy
+import typing
+
 import numpy as np
 from typing import (
     Dict,
@@ -14,9 +16,7 @@ import random
 import transformers
 
 from encoder_decoder_utils import tokenizer_utils
-from encoder_decoder_utils.constants import (
-    T5TokenizerConstants,
-)
+from encoder_decoder_utils import constants
 
 
 # TODO: Replace magic strings with constants.
@@ -38,28 +38,43 @@ def _pad_or_truncate(
 
 
 def _pad_or_truncate_np(
-        sequence: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
+        sequence: np.ndarray,  # An integer tensor of shape [batch_size, sequence_length] or [sequence_length]
         length: int,
         pad_token: int,
 ) -> np.ndarray:
     """Pad or truncate a numpy array to the specified length
 
-    :param sequence: A numpy array of integers or strings.
+    :param sequence: A numpy array of integers.
     :param length: An integer representing the desired length of the list.
     :param pad_token: The ID of the padding token.
     :return: A numpy array of integers or strings of length `length`.
     """
-    if sequence.shape[1] < length:
-        return np.pad(
-            array=sequence,
-            # No padding should be added to the beginning and end of the first axis (the batch dimension), and padding
-            # should be added to the end of the second axis (the sequence length).
-            pad_width=np.array([[0, 0], [0, length - sequence.shape[1]]]),
-            mode="constant",
-            constant_values=pad_token,
-        )
+    if len(sequence.shape) == 1:
+        sequence_length = sequence.shape[0]
+        if sequence_length < length:
+            return np.pad(
+                array=sequence,
+                pad_width=(0, length - sequence_length),
+                mode="constant",
+                constant_values=pad_token,
+            )
+        else:
+            return sequence[:length]
+    elif len(sequence.shape) == 2:
+        batch_size, sequence_length = sequence.shape
+        if sequence_length < length:
+            return np.pad(
+                array=sequence,
+                pad_width=np.array([[0, 0], [0, length - sequence_length]]),
+                mode="constant",
+                constant_values=pad_token,
+            )
+        else:
+            return sequence[:, :length]
     else:
-        return sequence[:, :length]
+        raise ValueError(
+            f"Expected a sequence of shape [batch_size, sequence_length] or [sequence_length], but got {sequence.shape}"
+        )
 
 
 def shift_tokens_right(
@@ -86,7 +101,7 @@ def shift_tokens_right(
     shifted_input_ids[:, 0] = decoder_start_token_id
 
     shifted_input_ids = np.where(
-        shifted_input_ids == T5TokenizerConstants.PAD_TOKEN_ID,
+        shifted_input_ids == constants.T5TokenizerConstants.PAD_TOKEN_ID,
         pad_token_id,
         shifted_input_ids,
     )
@@ -152,20 +167,26 @@ def pmi_word_mask(
     whole_words_lists = [[]]
     whole_words = whole_words_lists[0]
     for (i, token) in enumerate(input_tokens):
-        if token == T5TokenizerConstants.START_TOKEN or token == T5TokenizerConstants.PAD_TOKEN:
+        if (
+                token == constants.T5TokenizerConstants.START_TOKEN or
+                token == constants.T5TokenizerConstants.PAD_TOKEN
+        ):
             whole_words_lists.append(
                 []  # to separate parts as we don't want them to be considered part of an ngram
             )
             whole_words = whole_words_lists[-1]
             continue
         # now, we mark the indices of token that start a whole word that can be masked
-        if len(whole_words_indexes) >= 1 and not token.startswith(
-                T5TokenizerConstants.SPACE_TOKEN) and token not in string.punctuation:
+        if (
+                len(whole_words_indexes) >= 1 and
+                not token.startswith(constants.T5TokenizerConstants.SPACE_TOKEN) and
+                token not in string.punctuation
+        ):
             whole_words_indexes[-1].append(i)
-            whole_words[-1] = whole_words[-1] + token.strip(T5TokenizerConstants.SPACE_TOKEN).lower()
+            whole_words[-1] = whole_words[-1] + token.strip(constants.T5TokenizerConstants.SPACE_TOKEN).lower()
         else:
             whole_words_indexes.append([i])
-            whole_words.append(token.strip(T5TokenizerConstants.SPACE_TOKEN).lower())
+            whole_words.append(token.strip(constants.T5TokenizerConstants.SPACE_TOKEN).lower())
     offset = 0
     covered_indices = set()
     segments_to_merge = []
@@ -233,7 +254,7 @@ def pmi_word_mask(
 def pmi_noise_mask(
         examples: transformers.BatchEncoding,
         pmi_vocab: Set[str],
-        tokenizer: transformers.T5Tokenizer
+        tokenizer: typing.Union[transformers.T5Tokenizer, tokenizer_utils.DepthTokenizer]
 ) -> np.ndarray:  # Size: [batch_size, input_length]
     """
     Create a mask for PMI-based corruption in encoder-decoder models (e.g., T5).
@@ -247,7 +268,7 @@ def pmi_noise_mask(
         A mask array (0/1) of shape [batch_size, input_length] where 1 means the token should be masked.
     """
     mask_labels = []
-    for example in examples[T5TokenizerConstants.INPUT_IDS]:
+    for example in examples[constants.T5TokenizerConstants.INPUT_IDS]:
         ref_tokens = [tokenizer._convert_id_to_token(int(input_id)) for input_id in example]
         mask_labels_for_sample = pmi_word_mask(ref_tokens, pmi_vocab)
         mask_labels.append(mask_labels_for_sample)
@@ -288,7 +309,7 @@ def random_spans_noise_mask(
         corresponding token while False denotes that the corresponding token is unmasked.
     """
     if noise_density == 0.0:
-        return np.zeros(sequence_length, np.bool)
+        return np.zeros(sequence_length, np.bool_)
 
     orig_length = sequence_length
 
@@ -329,7 +350,7 @@ def random_spans_noise_mask(
         """
         first_in_segment = to_int(np.less(np.arange(num_items - 1), num_segments - 1))
         np.random.shuffle(first_in_segment)
-        first_in_segment = np.pad(first_in_segment, [[1, 0]])
+        first_in_segment = np.pad(first_in_segment, np.array([[1, 0]]))
         segment_id = np.cumsum(first_in_segment)
         _, segment_length = np.unique(segment_id, return_counts=True)
         return segment_length
@@ -356,10 +377,6 @@ def random_spans_noise_mask(
     mask = is_noise[:orig_length]
 
     if random_roll:
-        # TODO: Explore the benefit or using 4 different seeds following the logic below.
-        # roll_seed = (seeds[0][0] + seeds[1][1], seeds[0][1] - seeds[1][0])  # new seed.
-        # Roll the mask by a random offset e.g. for offset=2: [1,2,3,4] => [3,4,1,2]
-        # np.random.seed(roll_seed[0])
         offset = np.random.uniform(low=0, high=sequence_length, size=[1]).astype(np.int32)
         mask = np.roll(mask, shift=offset, axis=0)
 
@@ -418,10 +435,19 @@ def filter_input_ids_for_t5(
 
     # Ensure that all indices of span continuations (now at the end of 'gather_indices') correspond to the last index
     gather_indices[gather_indices == large_num] = expanded_input_ids_full.shape[1] - 1
+    gather_indices = gather_indices.astype(np.int8)
 
     # Shift all -1s within input IDs to the end of the sequence, and then replace them with 0s.
-    modified_input_ids = np.take_along_axis(expanded_input_ids_full, gather_indices[:, :-1], axis=1)
-    modified_input_ids = np.where(modified_input_ids == -1, 0, modified_input_ids)
+    modified_input_ids = np.take_along_axis(
+        arr=expanded_input_ids_full,
+        indices=gather_indices[:, :-1],
+        axis=1,
+    )
+    modified_input_ids = np.where(
+        modified_input_ids == -1,
+        0,
+        modified_input_ids,
+    )
 
     # If token type IDs are not provided, then we are done. Otherwise, we need to filter the token type IDs as well.
     if token_type_ids is None:
@@ -503,6 +529,7 @@ def filter_target_ids_for_t5(
     # Ensure that all indices of 0's (now at the end of 'gather_indices') correspond to the last index
     # of a sequence in input IDs (since those values must correspond to 0)
     gather_indices[gather_indices == large_num] = expanded_result.shape[1] - 1
+    gather_indices = gather_indices.astype(np.int8)
 
     # Shift all -1s within input IDs to the end of the sequence, and then replace them with 0s.
     modified_result = np.take_along_axis(expanded_result, gather_indices[:, :-1], axis=1)
@@ -555,7 +582,7 @@ def create_sentinel_ids_for_t5(
 
 
 def corrupt_for_vanilla_t5(
-        examples: Union[Dict[str, np.ndarray], List[Dict[str, np.ndarray]]],
+        examples: Union[Dict[str, np.ndarray], List[Dict[str, np.ndarray]], transformers.BatchEncoding],
         vocab_size: int,
         input_length: int,
         target_length: int,
@@ -586,11 +613,15 @@ def corrupt_for_vanilla_t5(
     """
     # convert list to dict and tensorize input
     if isinstance(examples, list) and isinstance(examples[0], dict):
-        batch = {k: np.array([examples[i][k] for i in range(len(examples))]) for k, v in examples[0].items()}
+        batch = {
+            k: np.array(
+                [examples[i][k] for i in range(len(examples))]
+            ) for k, v in examples[0].items()
+        }
     else:
         batch = examples
 
-    input_ids = batch[T5TokenizerConstants.INPUT_IDS]
+    input_ids = batch[constants.T5TokenizerConstants.INPUT_IDS]
     batch_size, expandend_input_length = input_ids.shape
     if pmi:
         mask_indices = pmi_noise_mask(examples, ngram_vocab_set, tokenizer)
@@ -616,13 +647,13 @@ def corrupt_for_vanilla_t5(
         mask_indices=mask_indices.astype(np.int8),
     )
 
-    batch[T5TokenizerConstants.INPUT_IDS] = filter_input_ids_for_t5(
+    batch[constants.T5TokenizerConstants.INPUT_IDS] = filter_input_ids_for_t5(
         vocab_size=vocab_size,
         input_ids=input_ids,
         sentinel_ids=input_ids_sentinel,
     )[0]
-    batch[T5TokenizerConstants.INPUT_IDS] = _pad_or_truncate_np(
-        sequence=batch[T5TokenizerConstants.INPUT_IDS],
+    batch[constants.T5TokenizerConstants.INPUT_IDS] = _pad_or_truncate_np(
+        sequence=batch[constants.T5TokenizerConstants.INPUT_IDS],
         length=input_length,
         pad_token=pad_token_id,
     )
@@ -636,29 +667,30 @@ def corrupt_for_vanilla_t5(
         length=target_length,
         pad_token=pad_token_id,
     )
-    labels[labels == pad_token_id] = T5TokenizerConstants.PAD_TOKEN_ID
-    batch[T5TokenizerConstants.LABELS] = labels
-    if batch[T5TokenizerConstants.INPUT_IDS].shape[-1] != input_length:
+    labels[labels == pad_token_id] = constants.T5TokenizerConstants.PAD_TOKEN_ID
+    batch[constants.T5TokenizerConstants.LABELS] = labels
+    if batch[constants.T5TokenizerConstants.INPUT_IDS].shape[-1] != input_length:
         raise ValueError(
             "`input_ids` are incorrectly preprocessed. `input_ids` length is "
-            f"{batch[T5TokenizerConstants.INPUT_IDS].shape[-1]}, but should be {input_length}."
+            f"{batch[constants.T5TokenizerConstants.INPUT_IDS].shape[-1]}, but should be {input_length}."
         )
-    if batch[T5TokenizerConstants.LABELS].shape[-1] != target_length:
+    if batch[constants.T5TokenizerConstants.LABELS].shape[-1] != target_length:
         raise ValueError(
-            f"`labels` are incorrectly preprocessed. `labels` length is {batch[T5TokenizerConstants.LABELS].shape[-1]},"
+            "`labels` are incorrectly preprocessed. "
+            f"`labels` length is {batch[constants.T5TokenizerConstants.LABELS].shape[-1]},"
             f" but should be {target_length}."
         )
     # to check that tokens are correctly preprocessed, one can run `self.tokenizer.batch_decode(input_ids)` and
     # `self.tokenizer.batch_decode(labels)` here
-    batch[T5TokenizerConstants.DECODER_INPUT_IDS] = shift_tokens_right(
-        input_ids=batch[T5TokenizerConstants.LABELS],
+    batch[constants.T5TokenizerConstants.DECODER_INPUT_IDS] = shift_tokens_right(
+        input_ids=batch[constants.T5TokenizerConstants.LABELS],
         pad_token_id=pad_token_id,
         decoder_start_token_id=decoder_start_token_id,
     )
     return batch
 
 
-def create_encoder_self_attention_mask(
+def create_depth_encoder_self_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         input_token_type_ids,  # An integer tensor of shape [batch_size, input_length]
         tokenizer,
@@ -705,23 +737,16 @@ def create_encoder_self_attention_mask(
                 sentence_index = input_token_type_ids[example_index, token_index]
                 attention_mask = np.equal(input_token_type_ids[example_index], sentence_index).astype(np.int64)
 
-            # Padding tokens can only attend to themselves. No other tokens can attend to padding tokens.
-            elif np.equal(token, tokenizer.pad_token_type_id):
-                attention_mask = np.zeros([input_sequence_length], dtype=np.int64)
-                attention_mask[token_index] = 1
-
-            # Dealing with a non-special token. Can attend to all tokens within the example except for padding tokens.
+            # Dealing with a non-special token. Can attend to all tokens within the example
             else:
-                # TODO: non-special tokens should not attend to EOS tokens as well as padding tokens. Do this by
-                #  modifying the 'is_padding' tensor.
-                attention_mask = np.where(encoder_is_padding[example_index], 0, 1)
+                attention_mask = np.ones([input_sequence_length], dtype=np.int64)
             batch_encoder_self_attention_mask.append(attention_mask)
     batch_encoder_self_attention_mask = np.stack(batch_encoder_self_attention_mask, axis=0).reshape(
         [batch_size, input_sequence_length, input_sequence_length])
     return batch_encoder_self_attention_mask
 
 
-def create_cross_attention_mask(
+def create_depth_cross_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
@@ -767,27 +792,17 @@ def create_cross_attention_mask(
                     np.isin(input_ids[example_index], np.array(sentence_token_ids)),
                     attention_mask,
                     0).astype(np.int64)
-            elif np.equal(token, tokenizer.pad_token_type_id):
-                attention_mask = np.zeros([input_sequence_length], dtype=np.int64)
+
             else:
-                # non-special tokens should not attend to EOS tokens as well as padding tokens.
+                # Non-special token, should attend to all tokens in the encoder.
                 attention_mask = np.ones([input_sequence_length], dtype=np.int64)
-                # Mask out all padding and eos tokens in the encoder.
-                attention_mask = np.where(
-                    np.isin(
-                        input_ids[example_index],
-                        np.array([tokenizer.pad_token_id, tokenizer.eos_token_id]),
-                        invert=True,
-                    ),
-                    attention_mask,
-                    0).astype(np.int64)
             batch_cross_attention_mask.append(attention_mask)
     batch_cross_attention_mask = np.stack(batch_cross_attention_mask, axis=0).reshape(
         [batch_size, target_sequence_length, input_sequence_length])
     return batch_cross_attention_mask
 
 
-def create_decoder_self_attention_mask(
+def create_depth_decoder_self_attention_mask(
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         sentence_token_ids: List[int],
@@ -837,11 +852,9 @@ def create_decoder_self_attention_mask(
                     np.isin(target_ids[example_index], np.array(sentence_token_ids)),
                     attention_mask,
                     0).astype(np.int64)
-            elif np.equal(token, tokenizer.pad_token_type_id):
-                attention_mask = np.zeros([target_sequence_length], dtype=np.int64)
-                attention_mask[token_index] = 1
+
             else:
-                # non-special tokens should not attend to EOS tokens as well as padding tokens.
+                # Non-special token, should attend to all past tokens in the decoder.
                 attention_mask = np.ones([target_sequence_length], dtype=np.int64)
                 attention_mask[token_index + 1:] = 0
             batch_decoder_self_attention_mask.append(attention_mask)
@@ -851,7 +864,7 @@ def create_decoder_self_attention_mask(
     return batch_decoder_self_attention_mask
 
 
-def create_attention_mask(
+def create_depth_attention_masks(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         input_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
@@ -906,22 +919,13 @@ def create_attention_mask(
         2. batch_cross_attention_mask
         3. batch_decoder_self_attention_mask
     """
-    # TODO: Make this code more efficient via vectorization.
-    # special_tokens = tokenizer.all_special_tokens
-    # # TODO: Optimize this filter with regular expressions rather than the 'in' operator.
-    # sentence_tokens = list(filter(
-    #     lambda _token: f'<sent' in _token,
-    #     special_tokens),
-    # )
-    # sentence_token_ids = tokenizer.convert_tokens_to_ids(sentence_tokens)
-
     if len(input_ids.shape) == 1:
         input_ids = np.expand_dims(input_ids, axis=0)
 
     _, target_sequence_length = target_ids.shape
 
     # create the encoder's self attention mask
-    batch_encoder_self_attention_mask = create_encoder_self_attention_mask(
+    batch_encoder_self_attention_mask = create_depth_encoder_self_attention_mask(
         input_ids=input_ids,
         input_token_type_ids=input_token_type_ids,
         tokenizer=tokenizer,
@@ -929,7 +933,7 @@ def create_attention_mask(
     )
 
     # create the cross-attention mask from decoder to encoder
-    batch_cross_attention_mask = create_cross_attention_mask(
+    batch_cross_attention_mask = create_depth_cross_attention_mask(
         input_ids=input_ids,
         target_ids=target_ids,
         sentence_token_ids=tokenizer.get_sentence_token_ids(),
@@ -937,7 +941,7 @@ def create_attention_mask(
     )
 
     # Create the decoder's self attention mask
-    batch_decoder_self_attention_mask = create_decoder_self_attention_mask(
+    batch_decoder_self_attention_mask = create_depth_decoder_self_attention_mask(
         target_ids=target_ids,
         target_token_type_ids=target_token_type_ids,
         sentence_token_ids=tokenizer.get_sentence_token_ids(),
@@ -947,8 +951,8 @@ def create_attention_mask(
     return batch_encoder_self_attention_mask, batch_cross_attention_mask, batch_decoder_self_attention_mask
 
 
-def create_sentinel_ids(
-        tokenizer: transformers.PreTrainedTokenizer,
+def create_sentinel_ids_for_depth(
+        tokenizer: tokenizer_utils.DepthTokenizer,
         mask_indices: np.ndarray,
         # An integer tensor of shape [batch_size, sequence_length] or shape [sequence_length].
         random_sentinel_order: bool = True,
@@ -1140,111 +1144,311 @@ def shuffle_inputs(
 
     shuffled_lengths = np.asarray([sentence_lengths[i] for i in shuffled_order])
     shuffled_token_type_ids = np.concatenate(
-        [np.tile(unique_id, reps=shuffled_lengths[id_index]) for id_index, unique_id in enumerate(shuffled_unique_ids)])
+        [
+            np.tile(unique_id, reps=shuffled_lengths[id_index])
+            for id_index, unique_id in enumerate(shuffled_unique_ids)
+        ]
+    )
     shuffled_start_indices = np.asarray([sentence_start_indices[i] for i in shuffled_order])
     shuffled_unique_indices = shuffled_order if start_index == 1 else shuffled_order + 1
+    if start_index == 0:
+        shuffled_token_type_ids += 1
     return shuffled_unique_indices, shuffled_lengths, shuffled_start_indices, shuffled_token_type_ids
 
-# def corrupt(
-#     input_ids: torch.Tensor,
-#     token_type_ids: torch.Tensor,
-#     noise_density: float,
-#     tokenizer: transformers.PreTrainedTokenizer,
-#     mean_noise_span_length: float = 3.0,
-#     do_shuffle: bool = False,
-# ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-#     """Corrupt the input text with span masking and sentence shuffling.
-#
-#     :param do_shuffle: Whether to shuffle the sentences in the input. If False, the sentences will be not be shuffled.
-#     :param input_ids: An integer tensor of shape [batch_size, sequence_length] corresponding to input token IDs.
-#     :param token_type_ids: An integer tensor of shape [batch_size, sequence_length] corresponding to sentences of each
-#         token within input_ids. The token at input_ids[i, j] belongs to sentence token_type_ids[i, j]. Padding tokens
-#         have a token type ID of 0.
-#     :param noise_density: The percentage of tokens to corrupt.
-#     :param tokenizer: The tokenizer used to generate token IDs. Contains dedicated tokens for sentences and sentinel
-#         tokens.
-#     :param mean_noise_span_length: The mean length of a corrupted span.
-#     :return: A tuple of tensors containing:
-#         - The corrupted input IDs of the input.
-#         - The corrupted token type IDs of the input.
-#         - The input IDs of the target.
-#         - The token type IDs of the target.
-#     """
-#
-#     # Corrupt the text with span masking and sentence shuffling. Create inputs for both the encoder and decoder.
-#     batch_size, padded_sequence_length = input_ids.shape
-#     sequence_lengths = np.sum(np.not_equal(token_type_ids.numpy(), 0).astype(np.int32), axis=1)
-#
-#     span_mask = np.reshape(
-#         np.concatenate(
-#             [
-#                 random_spans_noise_mask(
-#                     sequence_length=example_sequence_length,
-#                     maximum_length=padded_sequence_length,
-#                     noise_density=noise_density,
-#                     mean_noise_span_length=mean_noise_span_length)
-#                 for example_sequence_length in sequence_lengths]
-#         ),
-#         newshape=[batch_size, padded_sequence_length],
-#     )
-#
-#     # Shift the span mask by two in order to account for the initial end of sentence and start of sentence tokens.
-#     span_mask = torch.concat(
-#         [torch.zeros([batch_size, 2], dtype=torch.bool),
-#          torch.tensor(span_mask[:, :-2], dtype=torch.bool)],
-#         dim=1,
-#     )
-#
-#     # Identify special tokens.
-#     special_tokens = tokenizer.all_special_ids
-#     sentence_tokens = list(
-#         filter(lambda token: f'<{discourse_tokenizer.SENT}' in token, tokenizer.all_special_tokens))
-#     sentence_tokens.append(discourse_tokenizer.END_OF_SENTENCE_TOKEN)
-#     sentence_token_ids = tokenizer.convert_tokens_to_ids(sentence_tokens)
-#
-#     # Ensure mask is only applied to non-special tokens.
-#     augmented_input_span_mask = np.where(np.isin(input_ids, special_tokens, invert=True), span_mask, False)
-#
-#     # Create a sentinel mask, where 0s indicate a lack of mask, positive values indicate the start of a masked span,
-#     #  and -1 indicates the continuation of a masked span.
-#     input_ids_sentinel = create_sentinel_ids(tokenizer, augmented_input_span_mask.astype(np.int8))
-#
-#     modified_input_ids, modified_input_token_type_ids, modified_label_ids, modified_label_token_type_ids = (
-#         create_model_input_for_corrupted_batch(
-#             input_ids=input_ids,
-#             input_ids_sentinel=input_ids_sentinel,
-#             token_type_ids=token_type_ids,
-#             batch_size=batch_size,
-#             sequence_lengths=sequence_lengths,
-#             padded_sequence_length=padded_sequence_length,
-#             sentence_token_ids=sentence_token_ids,
-#         )
-#     )
-#     modified_label_ids = torch.tensor(modified_label_ids, dtype=torch.long)
-#     modified_label_ids[modified_label_ids == tokenizer.pad_token_id] = -100
-#
-#     # Prepend a 0 to the token type ids to account for the initial token of the decoder.
-#     modified_label_token_type_ids = modified_label_ids.new_zeros(modified_label_ids.shape)
-#     modified_label_token_type_ids[..., 1:] = modified_label_ids[..., :-1].clone()
-#     modified_label_token_type_ids[..., 0] = tokenizer.decoder_start_token_id
-#
-#     if do_shuffle:
-#         target_sentence_ids, target_sentence_start_indices, target_sentence_lengths = (
-#             np.unique(modified_label_ids, return_index=True, return_counts=True)
-#         )
-#         shuffled_sentence_ids, _, _, shuffled_token_type_ids = (
-#             shuffle_inputs(
-#                 sentence_unique_ids=target_sentence_ids,
-#                 sentence_lengths=target_sentence_lengths,
-#                 sentence_start_indices=target_sentence_start_indices,
-#                 padding_token_id=tokenizer.padding_token_id,
-#             )
-#         )
-#
-#     return (
-#         torch.tensor(modified_input_ids, dtype=torch.long),
-#         torch.tensor(modified_input_token_type_ids, dtype=torch.long),
-#         modified_label_ids,
-#         torch.tensor(modified_label_token_type_ids, dtype=torch.long),
-#     )
+def corrupt_for_depth(
+        examples: Union[Dict[str, np.ndarray], List[Dict[str, np.ndarray]], transformers.BatchEncoding],
+        tokenizer: tokenizer_utils.DepthTokenizer,
+        pad_token_id: int,
+        decoder_start_token_id: int,
+        noise_density: float = 0.5,
+        mean_noise_span_length: float = 3.0,
+        input_length: int = 512,
+        target_length: int = 512,
+        pmi: bool = False,
+        ngram_vocab_set: Set[str] = None,
+        do_shuffle: bool = False,
+) -> Dict[str, np.ndarray]:
+    """
+    Corrupt the input for a depth model.
+
+    :param examples: A dictionary containing the tokenized textual examples. The dictionary should contain the following
+        keys:
+        - 'input_ids': An integer tensor of shape [batch_size, input_length] containing the token ids.
+        - 'token_type_ids': An integer tensor of shape [batch_size, input_length] containing the token type ids.
+    :param tokenizer: The tokenizer used to generate token IDs. Contains dedicated tokens for sentences and sentinel
+        tokens.
+    :param pad_token_id: The token ID of the padding token of a vocabulary (accessible via the tokenizer).
+    :param decoder_start_token_id: The token ID of the start token of the decoder.
+    :param noise_density: The density of the noise to be applied to the input. This is a value in the range [0, 1].
+    :param mean_noise_span_length: The mean length of the noise spans to be applied to the input. This is an integer
+        value that is in the range (0, max_sequence_length). Note that for T5-based models, max_sequence_length is
+        typically 512.
+    :param pmi: A boolean indicating whether to use pointwise mutual information (PMI) to corrupt the input.
+    :param ngram_vocab_set: A set of strings representing the vocabulary of the model. This is used to corrupt the input
+        using PMI.
+    :param do_shuffle: A boolean indicating whether to shuffle the sentences within the input.
+    :return: A dictionary containing the corrupted input. The dictionary contains the following keys:
+        - 'input_ids': An integer tensor of shape [batch_size, input_length] containing the token ids.
+        - 'target_ids': An integer tensor of shape [batch_size, target_length] containing the token ids of the target
+        - 'labels': An integer tensor of shape [batch_size, target_length] containing the token ids of the target. This
+            tensor is used to compute the loss, and is the same as 'target_ids' except that the padding tokens are
+            replaced with -100, and the start token of the 'target_ids' is shifted one to the right.
+        - 'encoder_attention_mask': A binary integer tensor of shape [batch_size, input_length, input_length] which
+            serves as the attention mask for the encoder.
+        - 'decoder_attention_mask': A binary integer tensor of shape [batch_size, target_length, target_length] which
+            serves as the attention mask for the decoder.
+        - 'decoder_cross_attention_mask': A binary integer tensor of shape [batch_size, target_length, input_length]
+            which serves as the attention mask for cross attention (from the decoder to the encoder).
+        - 'length': An integer tensor of shape [batch_size] containing the lengths of each sequence in the batch,
+            including both the input and target tokens (not including padding tokens).
+    """
+    # convert list to dict and tensorize input
+    if isinstance(examples, list) and isinstance(examples[0], dict):
+        batch = {
+            k: np.array(
+                [examples[i][k] for i in range(len(examples))]
+            ) for k, v in examples[0].items()
+        }
+    else:
+        batch = examples
+
+    input_ids = batch[constants.DEPTHTokenizerConstants.INPUT_IDS]
+    token_type_ids = batch[constants.DEPTHTokenizerConstants.TOKEN_TYPE_IDS]
+
+    # Corrupt the text with span masking and sentence shuffling. Create inputs for both the encoder and decoder.
+    batch_size, expanded_input_length = input_ids.shape
+    sequence_lengths = np.sum(np.not_equal(token_type_ids, 0).astype(np.int32), axis=1)
+
+    if pmi:
+        mask_indices: np.ndarray = pmi_noise_mask(examples, ngram_vocab_set, tokenizer)
+    else:
+        mask_indices = np.reshape(
+            np.concatenate(
+                [
+                    random_spans_noise_mask(
+                        sequence_length=example_sequence_length,
+                        maximum_length=expanded_input_length,
+                        noise_density=noise_density,
+                        mean_noise_span_length=mean_noise_span_length)
+                    for example_sequence_length in sequence_lengths]
+            ),
+            newshape=[batch_size, expanded_input_length],
+        )
+
+    # Shift the span mask by two in order to account for the initial end of sentence and start of sentence tokens.
+    span_mask = np.concatenate(
+        [
+            np.zeros(
+                [batch_size, 2],
+                dtype=np.bool_,
+            ),
+            mask_indices[:, :-2].astype(np.bool_),
+        ],
+        axis=1,
+    )
+
+    # Identify special tokens.
+    special_tokens = tokenizer.all_special_ids
+
+    # Ensure mask is only applied to non-special tokens.
+    augmented_input_span_mask = np.where(
+        np.isin(
+            input_ids,
+            special_tokens,
+            invert=True,
+        ),
+        span_mask,
+        False,
+    )
+
+    # Create a sentinel mask, where 0s indicate a lack of mask, positive values indicate the start of a masked span,
+    #  and -1 indicates the continuation of a masked span.
+    input_ids_sentinel = create_sentinel_ids_for_depth(tokenizer, augmented_input_span_mask.astype(np.int8))
+
+    (modified_encoder_input_ids,
+     modified_encoder_token_type_ids,
+     modified_label_ids,
+     modified_label_token_type_ids) = (
+        create_model_input_for_corrupted_batch(
+            input_ids=input_ids,
+            input_ids_sentinel=input_ids_sentinel,
+            token_type_ids=token_type_ids,
+            batch_size=batch_size,
+            sequence_lengths=sequence_lengths,
+            padded_sequence_length=expanded_input_length,
+            # Ensure that all sentence tokens are included in the target
+            sentence_token_ids=tokenizer.get_sentence_token_and_eosen_ids(),
+        )
+    )
+
+    modified_encoder_input_ids = np.array(modified_encoder_input_ids)
+    modified_encoder_token_type_ids = np.array(modified_encoder_token_type_ids)
+
+    modified_label_ids = np.array(modified_label_ids)
+
+    # Shift the target ids by one to the right. This is done to ensure that the model predicts the next token in the
+    #  sequence.
+    modified_decoder_input_ids = shift_tokens_right(
+        modified_label_ids,
+        pad_token_id=pad_token_id,
+        decoder_start_token_id=decoder_start_token_id,
+    )
+
+    # T5 assumes that labels which correspond with pad tokens are replaced with -100. These tokens are ignored
+    #  when computing the loss.
+    modified_label_ids[modified_label_ids == pad_token_id] = -100
+
+    # Prepend a 1 to the token type ids to account for the initial token of the decoder (i.e., the decoder start token).
+    modified_decoder_token_type_ids = np.zeros(modified_label_ids.shape, dtype=np.int64)
+    modified_decoder_token_type_ids[..., 1:] = modified_label_ids[..., :-1].copy()
+    modified_decoder_token_type_ids[..., 0] = 1  # TODO: replace with decoder start token id
+
+    if do_shuffle:
+        batch_encoder_input_ids = []
+        batch_encoder_token_type_ids = []
+
+        for example_index in range(batch_size):
+
+            example_input_ids = modified_encoder_input_ids[example_index]
+            example_token_type_ids = modified_encoder_token_type_ids[example_index]
+
+            if tokenizer.eos_token_id not in example_input_ids:
+                # If there is no <EOS> token, then the example ends with two padding tokens.
+                # We replace these padding tokens with <EOSEN> and <EOS> tokens respectively, and associate
+                # these tokens with the last sentence.
+                example_input_ids[-2] = tokenizer.end_of_sentence_token_id
+                example_input_ids[-1] = tokenizer.eos_token_id
+                example_token_type_ids[-2] = example_token_type_ids[-3]
+                example_token_type_ids[-1] = example_token_type_ids[-3]
+
+            # Ignore the first token (<EOSEN>) of each example as well as the last token (<EOS>) of each example.
+            location_of_eos = np.argwhere(example_input_ids == tokenizer.eos_token_id)[-1][0]
+            token_type_ids_of_sentences = example_token_type_ids[1:location_of_eos]
+            input_ids_of_sentences = example_input_ids[1:location_of_eos]
+
+            # Identify the unique sentence ids, the number of tokens in each sentence, and the start index of each
+            #  sentence.
+            (example_encoder_sentence_ids,
+             example_encoder_sentence_start_indices,
+             example_encoder_sentence_lengths) = np.unique(
+                token_type_ids_of_sentences,
+                return_counts=True,
+                return_index=True,
+            )
+
+            # Shuffle the sentences.
+            (example_encoder_shuffled_sentence_order,
+             example_encoder_shuffled_sentence_lengths,
+             example_encoder_shuffled_sentence_start_indices,
+             example_encoder_shuffled_token_type_ids) = (
+                shuffle_inputs(
+                    sentence_unique_ids=example_encoder_sentence_ids,
+                    sentence_start_indices=example_encoder_sentence_start_indices,
+                    sentence_lengths=example_encoder_sentence_lengths
+                )
+            )
+
+            # Concatenate the shuffled sentences.
+            example_encoder_shuffled_end_indices = (
+                    example_encoder_shuffled_sentence_start_indices + example_encoder_shuffled_sentence_lengths
+            )
+            example_encoder_shuffled_input_ids = np.concatenate(
+                [
+                    input_ids_of_sentences[start_index : end_index] for
+                    start_index, end_index in
+                    zip(example_encoder_shuffled_sentence_start_indices, example_encoder_shuffled_end_indices)
+                 ]
+            )
+            example_encoder_shuffled_token_type_ids = np.concatenate(
+                [
+                    token_type_ids_of_sentences[start_index : end_index] for
+                    start_index, end_index in
+                    zip(example_encoder_shuffled_sentence_start_indices, example_encoder_shuffled_end_indices)
+                ]
+            )
+
+            # Prepend the first new sentence with an <EOSEN> token.
+            example_encoder_shuffled_input_ids = np.concatenate(
+                [
+                    np.array([tokenizer.end_of_sentence_token_id]),
+                    example_encoder_shuffled_input_ids
+                ]
+            )
+            example_encoder_shuffled_token_type_ids = np.concatenate(
+                [
+                    np.array([example_encoder_shuffled_token_type_ids[0]]),
+                    example_encoder_shuffled_token_type_ids
+                ]
+            )
+
+            # Add the <EOS> token at the end of the last sentence
+            # shuffled_input_ids[example_encoder_sentence_start_indices[0]] = tokenizer.eos_token_id
+            example_encoder_shuffled_input_ids = np.concatenate(
+                [
+                    example_encoder_shuffled_input_ids,
+                    np.array([tokenizer.eos_token_id])
+                ]
+            )
+
+
+            # Add the token type ID of the last sentence to the <EOS> token's token type ID.
+            last_sentence_token_type_id = example_encoder_shuffled_token_type_ids[-1]
+            # example_encoder_shuffled_token_type_ids[example_encoder_sentence_start_indices[0]] = (
+            #     example_encoder_shuffled_token_type_ids[-1])
+            example_encoder_shuffled_token_type_ids = np.concatenate(
+                [
+                    example_encoder_shuffled_token_type_ids,
+                    np.array([last_sentence_token_type_id])
+                ]
+            )
+
+            # Pad or truncate the input to the maximum sequence length.
+            example_encoder_shuffled_input_ids = _pad_or_truncate_np(
+                sequence=example_encoder_shuffled_input_ids,
+                length=input_length,
+                pad_token=tokenizer.pad_token_id,
+            )
+            example_encoder_shuffled_token_type_ids = _pad_or_truncate_np(
+                sequence=example_encoder_shuffled_token_type_ids,
+                length=input_length,
+                pad_token=tokenizer.pad_token_type_id,
+            )
+
+            batch_encoder_input_ids.append(example_encoder_shuffled_input_ids)
+            batch_encoder_token_type_ids.append(example_encoder_shuffled_token_type_ids)
+
+        modified_encoder_input_ids = np.stack(batch_encoder_input_ids, axis=0)
+        modified_encoder_token_type_ids = np.stack(batch_encoder_token_type_ids, axis=0)
+    else:
+        modified_encoder_token_type_ids = np.array(modified_encoder_token_type_ids)
+        modified_encoder_input_ids = np.array(modified_encoder_input_ids)
+
+    modified_label_ids = np.array(modified_label_ids)
+
+    batch_encoder_self_attention_mask, batch_cross_attention_mask, batch_decoder_self_attention_mask = (
+        create_depth_attention_masks(
+            input_ids=modified_encoder_input_ids,
+            target_ids=modified_decoder_input_ids,
+            input_token_type_ids=modified_encoder_token_type_ids,
+            target_token_type_ids=modified_decoder_token_type_ids,
+            tokenizer=tokenizer,
+        )
+    )
+
+    length = np.sum(
+        np.not_equal(modified_encoder_input_ids, pad_token_id).astype(np.int32),
+    ) + np.sum(
+        np.not_equal(modified_decoder_input_ids, pad_token_id).astype(np.int32),
+    )
+
+    return {
+        constants.DepthDataCollatorConstants.INPUT_IDS: modified_encoder_input_ids,
+        constants.DepthDataCollatorConstants.TARGET_IDS: modified_decoder_input_ids,
+        constants.DepthDataCollatorConstants.ENCODER_ATTENTION_MASK: batch_encoder_self_attention_mask,
+        constants.DepthDataCollatorConstants.DECODER_ATTENTION_MASK: batch_decoder_self_attention_mask,
+        constants.DepthDataCollatorConstants.CROSS_ATTENTION_MASK: batch_cross_attention_mask,
+        constants.DepthDataCollatorConstants.LABELS: modified_label_ids,
+        constants.DepthDataCollatorConstants.IS_SHUFFLED: np.array([do_shuffle] * batch_size).reshape([batch_size, 1]),
+        constants.DepthDataCollatorConstants.LENGTH: np.array([length] * batch_size).reshape([batch_size, 1]),
+    }
 

@@ -3,6 +3,8 @@ import enum
 import typing
 
 
+TRUSTED_DATASETS = {'c4', 'wikipedia', 'bookcorupus', 'wikitext', 'togethercomputer/RedPajama-Data-V2'}
+
 class MonitoringPlatform(enum.Enum):
     """Monitoring platform."""
     WANDB = "wandb"
@@ -111,9 +113,6 @@ class Metric(enum.Enum):
     SECONDS_PER_STEP: str = 'seconds_per_step'
     TIME: str = 'time'
 
-#
-# @dataclasses.dataclass
-# class CountMetricConstants(Metric):
     # Data/Tokenization metrics.
     AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT: str = 'average_non_padding_tokens_per_example_input'
     VARIANCE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT: str = 'variance_non_padding_tokens_per_example_input'
@@ -122,9 +121,6 @@ class Metric(enum.Enum):
     NUM_NON_PADDING_TOKENS_IN_BATCH_INPUT: str = 'num_non_padding_tokens_in_batch_input'
     NUM_NON_PADDING_TOKENS_IN_BATCH_LABEL: str = 'num_non_padding_tokens_in_batch_label'
 
-
-# @dataclasses.dataclass
-# class ExampleMetricConstants(Metric):
     # Example-level metric names
     EXAMPLE_ACCURACY: str = 'example_accuracy'
     EXAMPLE_F1: str = 'example_f1'
@@ -134,8 +130,6 @@ class Metric(enum.Enum):
     EXAMPLE_SPEARMAN: str = 'example_spearman'
     EXAMPLE_PEARSON: str = 'example_pearson'
 
-# @dataclasses.dataclass
-# class TokenMetricConstants(Metric):
     # Token-level metric names
     TOKEN_ACCURACY: str = 'token_accuracy'
     TOKEN_F1: str = 'token_f1'
@@ -146,7 +140,7 @@ class Metric(enum.Enum):
     TOKEN_PEARSON: str = 'token_pearson'
 
 
-# class DepthMetric(enum.Enum):
+    # Depth metrics
     AVERAGE_LOSS_ON_SENTENCE_TOKENS: str = 'average_loss_on_sentence_tokens'
     VARIANCE_LOSS_ON_SENTENCE_TOKENS: str = 'variance_loss_on_sentence_tokens'
     AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'average_loss_on_non_sentence_tokens'
@@ -183,13 +177,38 @@ class TokenizerConstants:
     NUM_TRUNCATED_TOKENS: str = 'num_truncated_tokens'
 
 @dataclasses.dataclass
-class DepthDataCollatorConstants:
+class T5DataCollatorConstants:
+
+    # Inputs
+    PAD_TO_MAX_LENGTH: str = 'pad_to_max_length'
+    MAX_LENGTH: str = 'max_length'
+    TRUNCATION: str = 'truncation'
     MEAN_NOISE_SPAN_LENGTH: str = 'mean_noise_span_length'
     NOISE_DENSITY: str = 'noise_density'
     PMI_VOCAB: str = 'pmi_vocab'
-    INPUT_TOKEN_TYPE_IDS: str = 'input_token_type_ids'
+
+    # Outputs
+    INPUT_IDS: str = 'input_ids'
     TARGET_IDS: str = 'target_ids'
+    LABELS: str = 'labels'
+    LENGTH: str = 'length'
+
+    ENCODER_ATTENTION_MASK: str = 'encoder_attention_mask'
+    DECODER_ATTENTION_MASK: str = 'decoder_attention_mask'
+    CROSS_ATTENTION_MASK: str = 'cross_attention_mask'
+
+@dataclasses.dataclass
+class DepthDataCollatorConstants(T5DataCollatorConstants):
+
+    # Inputs
+    INPUT_TOKEN_TYPE_IDS: str = 'input_token_type_ids'
     TARGET_TOKEN_TYPE_IDS: str = 'target_token_type_ids'
+    LABEL_TOKEN_TYPE_IDS: str = 'label_token_type_ids'
+
+    SENTENCE_SHUFFLING_PROBABILITY: str = 'sentence_shuffling_probability'
+
+    # Outputs
+    IS_SHUFFLED: str = 'is_shuffled'
 
 
 @dataclasses.dataclass
@@ -212,6 +231,18 @@ class DEPTHTokenizerConstants(T5TokenizerConstants):
     SENT_TOKEN: str = '<sent>'
     END_OF_SENTENCE_TOKEN: str = "<eosen>"
     NUM_SENT_TOKENS: int = 20
+
+
+@dataclasses.dataclass
+class DataLoaderConstants:
+    BATCH_SIZE: str = 'batch_size'
+    NUM_WORKERS: str = 'num_workers'
+    PIN_MEMORY: str = 'pin_memory'
+    DROP_LAST: str = 'drop_last'
+    SHUFFLE: str = 'shuffle'
+    COLLATE_FN: str = 'collate_fn'
+    SAMPLER: str = 'sampler'
+    PERSISTENT_WORKERS: str = 'persistent_workers'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -245,6 +276,8 @@ class UnitTestConstants:
     BATCH_OF_TEXT: str = 'batch_of_text'
     EXAMPLES: str = 'examples'
     SEED: str = 'seed'
+    DO_SHUFFLE: str = 'do_shuffle'
+    MODEL_IMPLEMENTATION: str = 'model_implementation'
 
     ###################################
     ### Unit test expected results  ###
@@ -255,13 +288,18 @@ class UnitTestConstants:
     # Span-Masking
     EXPECTED_SPAN_MASKS: str = 'expected_span_masks'
     EXPECTED_INPUT_IDS: str = 'expected_input_ids'
+    EXPECTED_TARGET_IDS: str = 'expected_target_ids'
+
     EXPECTED_INPUT_IDS_SENTINEL: str = 'expected_input_ids_sentinel'
     EXPECTED_MODIFIED_INPUT_IDS: str = 'expected_modified_input_ids'
     EXPECTED_MODIFIED_LABEL_IDS: str = 'expected_modified_label_ids'
 
+    EXPECTED_LENGTH: str = 'expected_length'
+
     # Sentence shuffling
     EXPECTED_TOKEN_TYPE_IDS: str = 'expected_token_type_ids'
     EXPECTED_LABEL_TOKEN_TYPE_IDS: str = 'expected_label_token_type_ids'
+    EXPECTED_IS_SHUFFLED: str = 'expected_is_shuffled'
 
     # Attention masks
     EXPECTED_ENCODER_SELF_ATTENTION_MASK: str = 'expected_encoder_self_attention_mask'
