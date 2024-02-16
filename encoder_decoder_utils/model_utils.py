@@ -14,6 +14,9 @@ from encoder_decoder_utils import data_collator_utils
 from encoder_decoder_utils.logging_utils import Logger
 from encoder_decoder_utils.tokenizer_utils import DepthTokenizer
 
+from fine_tune_constants.glue_constants import GlueConstants
+from fine_tune_constants.disco_eval_constants import DiscoEvalConstants
+
 
 def get_model(
         args: omegaconf.DictConfig,
@@ -184,6 +187,8 @@ def load_dataset_splits(
         training_set = dataset[constants.DatasetSplit.TRAIN.value]
         validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
 
+        logger.log_message(f'Loaded dataset splits: {training_set}')
+        logger.log_message(f'Loaded dataset splits: {validation_set}')
         # If specified, take a subset of the training and validation sets
         if args.dataset.training_set.num_examples > -1:
             logger.log_message(f'Only using {args.dataset.training_set.num_examples} examples from the training set.')
@@ -199,15 +204,31 @@ def load_dataset_splits(
             constants.DatasetSplit.TRAIN.value: training_set,
             constants.DatasetSplit.TEST.value: validation_set,
         }
-
+        logger.log_message(f'Loaded dataset splits: {list(dataset_splits.keys())}')
+        logger.log_message(f'Loaded dataset splits: {list(dataset_splits.values())}')
         assert (
-            dataset[constants.DatasetSplit.TRAIN.value].n_shards == args.dataset.num_shards
+                dataset[constants.DatasetSplit.TRAIN.value].n_shards == args.dataset.num_shards
         ), "We want to have many shards for efficient processing with num_workes in PyTorch dataloader"
 
     # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
     elif args.mode == constants.TrainingPhase.FT.value:
-        raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
+        benchmark_name = args.data.benchmark_constants
+        dataset_name = args.data.benchmark_dataset
+        dataset = datasets.load_dataset(
+            benchmark_name,
+            dataset_name,
+            streaming=args.dataset.streaming,
+        )
 
+        training_set = dataset[constants.DatasetSplit.TRAIN.value]
+        validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
+        test_set = dataset[constants.DatasetSplit.TEST.value]
+
+        dataset_splits = {
+            constants.DatasetSplit.TRAIN.value: training_set,
+            constants.DatasetSplit.VALIDATION.value: validation_set,
+            constants.DatasetSplit.TEST.value: test_set,
+        }
     else:
         raise NotImplementedError(f'Unknown mode: {args.mode}')
 
@@ -231,13 +252,11 @@ def process_dataset(
     :return: A dictionary of the processed dataset splits.
     """
     logger.log_message('Processing dataset splits')
-
     if args.mode == constants.TrainingPhase.PT.value:
         logger.log_message('Pre-processing for pre-training')
         final_datasets = {}
 
         for split, dataset_split in dataset_splits.items():
-
             # Merge multiple examples into each input of the language model
             # TODO: Pass in the name of the text column in the dataset. It may not always be 'text'
             if args.dataset.merge_examples:
@@ -277,20 +296,41 @@ def process_dataset(
                     },
                     remove_columns=[args.dataset.text_column],
                 )
+                # logger.log_message(f'mapped dataset: {dataset_split}')
 
             dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
             final_datasets[split] = dataset_split
 
     elif args.mode == constants.TrainingPhase.FT.value:
         logger.log_message('Pre-processing for fine-tuning')
-
+        ft_constants = GlueConstants() if args.data.benchmark_constants == 'glue' else DiscoEvalConstants()
+        logger.log_message(f'Fine-tuning constants: {ft_constants}')
         # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
-        if args.dataset.path == 'glue':
-           raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
-        elif args.dataset.path == 'discoeval':
-            raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
-        else:
-            raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
+        final_datasets = {}
+        dataset_name = args.data.benchmark_dataset
+        for split, dataset_split in dataset_splits.items():
+            logger.log_message('Tokenizing for T5 without merging examples')
+
+            preprocessing_function = data_utils.create_preprocess_function(
+                dataset_info=ft_constants[dataset_name],
+                dataset_name=dataset_name,
+                tokenizer=tokenizer,
+                args=args,
+                logger=logger,
+            )
+            logger.log_message(f'preprocessing function: {preprocessing_function}')
+            dataset_split = dataset_split.map(
+                preprocessing_function,
+                batched=True,
+                remove_columns=[
+                    ft_constants[dataset_name].TEXT_COLUMN_NAME,
+                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
+                    'idx',
+                ],
+            )
+            dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+            final_datasets[split] = dataset_split
+
     else:
         raise NotImplementedError
 
@@ -344,7 +384,10 @@ def get_data_collator(
 
     # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
     elif args.mode == constants.TrainingPhase.FT.value:
-        raise NotImplementedError(f'Fine-tuning not implemented for {args.dataset.path}')
+        data_collator = transformers.DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            label_pad_token_id=tokenizer.pad_token_id,
+        ),
 
     else:
         raise NotImplementedError(f'Unknown mode: {args.mode}')

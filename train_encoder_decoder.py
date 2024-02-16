@@ -29,9 +29,9 @@ T5 example usage:
 deepspeed \
 --no_local_rank \
 --master_port=12345 \
-pre_train_encoder_decoder.py \
-num_gpus=4 \
-num_cpus=32 \
+train_encoder_decoder.py \
+num_gpus=12 \
+num_cpus=100 \
 model.model_implementation=hf_t5 \
 model.compile=false \
 data.data_collator=custom_t5 \
@@ -93,7 +93,6 @@ def main(dict_config: omegaconf.DictConfig):
     config = model_utils.get_config(args=dict_config, logger=logger)
     model = model_utils.get_model(args=dict_config, config=config, logger=logger, tokenizer=tokenizer)
 
-
     optimizer = optimizer_utils.get_optimizer(model=model, args=dict_config, logger=logger)
     logger.log_message(f"Optimizer: {optimizer}")
     lr_scheduler = optimizer_utils.get_lr_scheduler(optimizer=optimizer, args=dict_config, logger=logger)
@@ -101,9 +100,26 @@ def main(dict_config: omegaconf.DictConfig):
 
     dataset_splits = model_utils.load_dataset_splits(args=dict_config, logger=logger)
     dataset_splits = model_utils.process_dataset(
-        dataset_splits=dataset_splits, args=dict_config, tokenizer=tokenizer, logger=logger)
+        dataset_splits=dataset_splits,
+        args=dict_config,
+        tokenizer=tokenizer,
+        logger=logger,
+    )
+    # if dict_config.mode == constants.TrainingPhase.FT:
+    #     for split, dataset in dataset_splits.items():
+    #         dataset_splits[split] = dataset.set_format(
+    #             type="torch",
+    #             columns=[constants.T5TokenizerConstants.INPUT_IDS, constants.T5TokenizerConstants.LABELS],
+    #         )
 
-    data_collator = model_utils.get_data_collator(tokenizer=tokenizer, config=config, args=dict_config, logger=logger)
+    logger.log_message(f"Dataset splits: {dataset_splits.keys()}")
+    data_collator = model_utils.get_data_collator(
+        tokenizer=tokenizer,
+        config=config,
+        args=dict_config,
+        logger=logger,
+    )[0]
+    logger.log_message(f"Data collator: {type(data_collator)}")
     logger.log_args(args=dict_config)
     per_device_train_batch_size = (
             dict_config.optim.batch_size // dict_config.optim.grad_acc // dict_config.num_gpus
@@ -163,17 +179,7 @@ def main(dict_config: omegaconf.DictConfig):
         deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,
     )
 
-    # optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
-    optimizers = (optimizer, lr_scheduler)
-
-    # def compute_metrics(eval_preds: transformers.trainer_utils.EvalPrediction) -> typing.Mapping[str, float]:
-    #     """
-    #     Return a collection of evaluation metrics given a (logits, labels) pair for a multi-class classification problem.
-    #     :param eval_preds: A 2-tuple of the form [logits, labels]. Labels is a collection of integers representing the label
-    #         of the input. Logits is a collection of tensors corresponding to the model's logits for each input in the batch.
-    #     :return: A dictionary of metrics (mapping string metric names to float metric values).
-    #     """
-    #     return metric_utils.compute_metrics(eval_preds=eval_preds, tokenizer=tokenizer)
+    optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
 
     def compute_metrics(eval_preds):
         accuracy = evaluate.load('accuracy')
