@@ -14,8 +14,8 @@ from encoder_decoder_utils import data_collator_utils
 from encoder_decoder_utils.logging_utils import Logger
 from encoder_decoder_utils.tokenizer_utils import DepthTokenizer
 
-from fine_tune_constants.glue_constants import GlueConstants
-from fine_tune_constants.disco_eval_constants import DiscoEvalConstants
+from fine_tune_constants.glue_constants import GlueConstants, TaskConfigOneInput, TaskConfigTwoInput
+from fine_tune_constants.disco_eval_constants import DiscoEvalConstants, DiscoEvalTaskConfig
 
 
 def get_model(
@@ -214,16 +214,33 @@ def load_dataset_splits(
     elif args.mode == constants.TrainingPhase.FT.value:
         benchmark_name = args.data.benchmark_constants
         dataset_name = args.data.benchmark_dataset
-        dataset = datasets.load_dataset(
-            benchmark_name,
-            dataset_name,
-            streaming=args.dataset.streaming,
-        )
+        if benchmark_name == 'glue':
+            dataset = datasets.load_dataset(
+                benchmark_name,
+                dataset_name,
+                streaming=args.dataset.streaming,
+            )
+        elif benchmark_name == 'OfekGlick/DiscoEval':
+            dataset = datasets.load_dataset(
+                benchmark_name,
+                dataset_name,
+            )
+        else:
+            raise NotImplementedError(f'Unknown benchmark name: {benchmark_name}')
 
-        training_set = dataset[constants.DatasetSplit.TRAIN.value]
-        validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
-        test_set = dataset[constants.DatasetSplit.TEST.value]
-
+        if benchmark_name == 'glue':
+            if dataset_name == 'mnli':
+                training_set = dataset['train']
+                validation_matched = dataset['validation_matched']
+                validation_mismatched = dataset['validation_mismatched']
+                test_matched = dataset['test_matched']
+                test_mismatched = dataset['test_mismatched']
+                validation_set = datasets.concatenate_datasets([validation_matched, validation_mismatched])
+                test_set = datasets.concatenate_datasets([test_matched, test_mismatched])
+            else:
+                training_set = dataset[constants.DatasetSplit.TRAIN.value]
+                validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
+                test_set = dataset[constants.DatasetSplit.TEST.value]
         dataset_splits = {
             constants.DatasetSplit.TRAIN.value: training_set,
             constants.DatasetSplit.VALIDATION.value: validation_set,
@@ -319,16 +336,31 @@ def process_dataset(
                 logger=logger,
             )
             logger.log_message(f'preprocessing function: {preprocessing_function}')
+            if isinstance(ft_constants[dataset_name], TaskConfigOneInput):
+                remove_columns = [
+                    ft_constants[dataset_name].TEXT_COLUMN_NAME,
+                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
+                ] + ['idx']
+            elif isinstance(ft_constants[dataset_name], TaskConfigTwoInput):
+                remove_columns = [
+                    ft_constants[dataset_name].TEXT_COLUMN_NAME_1,
+                    ft_constants[dataset_name].TEXT_COLUMN_NAME_2,
+                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
+                ] + ['idx']
+            elif isinstance(ft_constants[dataset_name], DiscoEvalTaskConfig):
+                remove_columns = [
+                                     ft_constants.TEXT_COLUMN_NAMES[i] for i in
+                                     range(ft_constants[dataset_name].TEXT_COLUMN_AMOUNT)
+                                 ] + [ft_constants[dataset_name].LABEL_COLUMN_NAME]
+            else:
+                raise NotImplementedError(f'Unknown task config: {ft_constants[dataset_name]}')
             dataset_split = dataset_split.map(
                 preprocessing_function,
                 batched=True,
-                remove_columns=[
-                    ft_constants[dataset_name].TEXT_COLUMN_NAME,
-                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
-                    'idx',
-                ],
+                remove_columns=remove_columns,
             )
-            dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+            if args.data.benchmark_constants == 'glue':
+                dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
             final_datasets[split] = dataset_split
 
     else:

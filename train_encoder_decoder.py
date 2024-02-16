@@ -105,12 +105,6 @@ def main(dict_config: omegaconf.DictConfig):
         tokenizer=tokenizer,
         logger=logger,
     )
-    # if dict_config.mode == constants.TrainingPhase.FT:
-    #     for split, dataset in dataset_splits.items():
-    #         dataset_splits[split] = dataset.set_format(
-    #             type="torch",
-    #             columns=[constants.T5TokenizerConstants.INPUT_IDS, constants.T5TokenizerConstants.LABELS],
-    #         )
 
     logger.log_message(f"Dataset splits: {dataset_splits.keys()}")
     data_collator = model_utils.get_data_collator(
@@ -197,7 +191,9 @@ def main(dict_config: omegaconf.DictConfig):
         model=model,
         args=training_arguments,
         train_dataset=dataset_splits[constants.DatasetSplit.TRAIN.value],
-        eval_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
+        eval_dataset=dataset_splits[
+            constants.DatasetSplit.TEST.value if dict_config.mode == constants.TrainingPhase.PT
+            else constants.DatasetSplit.VALIDATION.value],
         tokenizer=tokenizer,
         optimizers=optimizers,
         data_collator=data_collator,

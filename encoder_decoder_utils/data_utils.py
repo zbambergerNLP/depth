@@ -221,9 +221,9 @@ def preprocess_function_one_input(
     labels[labels == tokenizer.pad_token_id] = -100
     results['labels'] = labels
     results = transformers.BatchEncoding(results)
-    logger.log_message(f"Results: {results.keys()}")
-    logger.log_message(f"Results input_ids: {results['input_ids'][:5]}, {results['input_ids'].shape}")
-    logger.log_message(f"Results labels: {results['labels'][:5]}, {results['labels'].shape}")
+    # logger.log_message(f"Results: {results.keys()}")
+    # logger.log_message(f"Results input_ids: {results['input_ids'][:5]}, {results['input_ids'].shape}")
+    # logger.log_message(f"Results labels: {results['labels'][:5]}, {results['labels'].shape}")
     return results
 
 
@@ -261,14 +261,12 @@ def preprocess_function_two_inputs(
     inputs_1 = [f"{prefix_1}{sentence}" for sentence in examples[text_column_name_1]]
     inputs_2 = [f"{prefix_2}{sentence}" for sentence in examples[text_column_name_2]]
     inputs = [f"{sent1} {sent2}" for sent1, sent2 in zip(inputs_1, inputs_2)]
-    logger.log_message(f"Inputs: {inputs}")
     encoding = tokenizer(
         inputs,
         padding='max_length',
         max_length=in_length,
         truncation=True,
     )
-    logger.log_message("Successfully tokenized inputs.")
     results = {'input_ids': np.array(encoding.input_ids)}
     if is_regression:  # Training task involves predicting continuous values
         outputs = [str(round(example, 1)) for example in examples[label_column_name]]
@@ -446,9 +444,7 @@ def create_preprocess_function(
     logger.log_message(f"Label column name: {label_column_name}.")
     logger.log_message(f"dataset_info{dataset_info}")
     if dataset_name in GlueConstants.TASKS:  # This refers to the GLUE and SUPERGLUE benchmarks.
-        logger.log_message("I have entered the if statement of glue")
         if isinstance(dataset_info, glue_constants.TaskConfigOneInput):
-            logger.log_message("I have entered the if statement of glue one input")
             return create_preprocess_function_one_input(
                 label_names=label_names,
                 label_column_name=label_column_name,
@@ -460,7 +456,6 @@ def create_preprocess_function(
                 logger=logger,
             )
         elif isinstance(dataset_info, glue_constants.TaskConfigTwoInput):
-            logger.log_message("I have entered the if statement of glue two input")
             return create_preprocess_function_two_inputs(
                 label_names=label_names,
                 label_column_name=label_column_name,
