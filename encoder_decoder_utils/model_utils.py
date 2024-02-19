@@ -228,15 +228,16 @@ def load_dataset_splits(
         else:
             raise NotImplementedError(f'Unknown benchmark name: {benchmark_name}')
 
+        # TODO: Use constants instead of literal string
         if benchmark_name == 'glue':
             if dataset_name == 'mnli':
                 training_set = dataset['train']
-                validation_matched = dataset['validation_matched']
-                validation_mismatched = dataset['validation_mismatched']
-                test_matched = dataset['test_matched']
-                test_mismatched = dataset['test_mismatched']
-                validation_set = datasets.concatenate_datasets([validation_matched, validation_mismatched])
-                test_set = datasets.concatenate_datasets([test_matched, test_mismatched])
+                if args.data.mnli_sub_dir == 'mismatched':
+                    validation_set = dataset['validation_mismatched']
+                    test_set = dataset['test_mismatched']
+                else:
+                    validation_set = dataset['validation_matched']
+                    test_set = dataset['test_matched']
             else:
                 training_set = dataset[constants.DatasetSplit.TRAIN.value]
                 validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
@@ -359,7 +360,8 @@ def process_dataset(
                 batched=True,
                 remove_columns=remove_columns,
             )
-            if args.data.benchmark_constants == 'glue':
+            # This is nessesary, in glue, the test set should not be shuffled.
+            if args.data.benchmark_constants == 'glue' and not split == constants.DatasetSplit.TEST.value:
                 dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
             final_datasets[split] = dataset_split
 
@@ -414,12 +416,11 @@ def get_data_collator(
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')
 
-    # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
     elif args.mode == constants.TrainingPhase.FT.value:
         data_collator = transformers.DataCollatorForSeq2Seq(
             tokenizer=tokenizer,
             label_pad_token_id=tokenizer.pad_token_id,
-        ),
+        )
 
     else:
         raise NotImplementedError(f'Unknown mode: {args.mode}')

@@ -7,15 +7,17 @@ from transformers import BatchEncoding
 
 from fine_tune_constants import glue_constants, disco_eval_constants
 
-dec = disco_eval_constants.DiscoEvalConstants()
+disco_eval_constants_instance = disco_eval_constants.DiscoEvalConstants()
 from fine_tune_constants.glue_constants import GlueConstants
 import numpy as np
 from typing import Dict, List, Callable, Any
 import transformers
 from encoder_decoder_utils.constants import (
-    TokenizerConstants
+    TokenizerConstants,
+    T5TokenizerConstants
 )
 from encoder_decoder_utils import tokenizer_utils
+import encoder_decoder_utils.logging_utils as logging_utils
 
 
 def tokenize_function(
@@ -131,7 +133,7 @@ def preprocess_function_n_inputs(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger=None,
+        logger: logging_utils.Logger = None,
 ) -> transformers.BatchEncoding:
     """
     Pre-processes batches of examples with two textual inputs for an encoder-decoder model.
@@ -153,7 +155,8 @@ def preprocess_function_n_inputs(
     examples.pop(label_column_name)
     examples_values = dict(examples).values()  # takes the values for each text column of the dataset
     transposed_values = list(zip(*examples_values))  # transposes a matrix (list of lists)
-    inputs = [[f"{dec.TEXT_COLUMN_NAMES[i]}: {sent}" for i, sent in enumerate(exmple)] for exmple in transposed_values]
+    inputs = [[f"{disco_eval_constants_instance.TEXT_COLUMN_NAMES[i]}: {sent}" for i, sent in enumerate(exmple)] for
+              exmple in transposed_values]
     inputs = ["\t".join(exmple) for exmple in inputs]
     inputs = [f"{task_name}: {exmple}" for exmple in inputs]
     encoding = tokenizer(
@@ -162,16 +165,17 @@ def preprocess_function_n_inputs(
         max_length=in_length,
         truncation=True,
     )
-    results = {TokenizerConstants.INPUT_IDS: np.array(encoding.input_ids)}
+    encoding = np.array(encoding.input_ids)
+    results = {TokenizerConstants.INPUT_IDS: encoding}
     labels = tokenizer(
         outputs,
         padding='max_length',
         max_length=out_length,
         truncation=True,
-    )['input_ids']
+    )[T5TokenizerConstants.INPUT_IDS]
     labels = np.array(labels)
     labels[labels == tokenizer.pad_token_id] = -100
-    results['labels'] = labels
+    results[T5TokenizerConstants.LABELS] = labels
     results = transformers.BatchEncoding(results)
     return results
 
@@ -185,7 +189,7 @@ def preprocess_function_one_input(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger=None,
+        logger: logging_utils.Logger = None,
 ) -> BatchEncoding:
     """
     Pre-processes batches of examples with only a single textual input for an encoder-decoder model.
@@ -209,7 +213,8 @@ def preprocess_function_one_input(
         truncation=True,
         return_tensors='pt'
     )
-    results = {'input_ids': encoding.input_ids}
+    encoding = np.array(encoding.input_ids)
+    results = {TokenizerConstants.INPUT_IDS: encoding}
     outputs = [label_names[example] for example in examples[label_column_name]]
     labels = tokenizer(
         outputs,
@@ -217,13 +222,10 @@ def preprocess_function_one_input(
         max_length=out_length,
         truncation=True,
         return_tensors='pt'
-    )['input_ids']
+    )[T5TokenizerConstants.INPUT_IDS]
     labels[labels == tokenizer.pad_token_id] = -100
-    results['labels'] = labels
+    results[T5TokenizerConstants.LABELS] = labels
     results = transformers.BatchEncoding(results)
-    # logger.log_message(f"Results: {results.keys()}")
-    # logger.log_message(f"Results input_ids: {results['input_ids'][:5]}, {results['input_ids'].shape}")
-    # logger.log_message(f"Results labels: {results['labels'][:5]}, {results['labels'].shape}")
     return results
 
 
@@ -239,7 +241,7 @@ def preprocess_function_two_inputs(
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
         is_regression: bool = False,
-        logger=None
+        logger: logging_utils.Logger = None
 ) -> transformers.BatchEncoding:
     """
     Pre-processes batches of examples with two textual inputs for an encoder-decoder model.
@@ -267,7 +269,8 @@ def preprocess_function_two_inputs(
         max_length=in_length,
         truncation=True,
     )
-    results = {'input_ids': np.array(encoding.input_ids)}
+    encoding = np.array(encoding.input_ids)
+    results = {TokenizerConstants.INPUT_IDS: encoding}
     if is_regression:  # Training task involves predicting continuous values
         outputs = [str(round(example, 1)) for example in examples[label_column_name]]
     else:  # Training task involves predicting a label from a predefined set of possible labels.
@@ -279,10 +282,10 @@ def preprocess_function_two_inputs(
         padding='max_length',
         max_length=out_length,
         truncation=True,
-    )['input_ids']
+    )[T5TokenizerConstants.INPUT_IDS]
     labels = np.array(labels)
     labels[labels == tokenizer.pad_token_id] = -100
-    results['labels'] = labels
+    results[T5TokenizerConstants.LABELS] = labels
     results = transformers.BatchEncoding(results)
     return results
 
@@ -295,7 +298,7 @@ def create_preprocess_function_one_input(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger=None,
+        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     """
     Creates a pre-processing function for batches of examples with only a single textual input for an encoder-decoder
@@ -340,7 +343,7 @@ def create_preprocess_function_two_inputs(
         in_length: int,
         out_length: int,
         is_regression: bool = False,
-        logger=None,
+        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     """
     Creates a pre-processing function for batches of examples with two textual inputs for an encoder-decoder model.
@@ -385,7 +388,7 @@ def create_preprocess_function_n_inputs(
         tokenizer: transformers.PreTrainedTokenizer,
         in_length: int,
         out_length: int,
-        logger=None,
+        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     def preprocess_function(examples: typing.Dict[str, typing.Any]) -> BatchEncoding:
         return preprocess_function_n_inputs(

@@ -35,7 +35,8 @@ def compute_metrics_depth(
 
     average_non_padding_tokens_per_example_input = np.not_equal(inputs, tokenizer.pad_token_id).sum(axis=1).mean()
     # -100 is the ignore index within the labels. It is used to ignore padding tokens when computing the loss.
-    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).sum(axis=1).mean()  # TODO: Use constant instead of magic number
+    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).sum(
+        axis=1).mean()  # TODO: Use constant instead of magic number
     num_non_padding_tokens_in_batch_input = np.not_equal(inputs, tokenizer.pad_token_id).sum(axis=1).sum()
     num_non_padding_tokens_in_batch_label = np.not_equal(labels, tokenizer.pad_token_id).sum(axis=1).sum()
 
@@ -55,7 +56,8 @@ def compute_metrics_depth(
     )
     average_loss_on_sentence_tokens = sentence_losses.mean()
     variance_loss_on_sentence_tokens = sentence_losses.var()
-    is_padding_token = np.equal(labels, -100)  # -100 is the ignore index within the labels  # TODO: Use constant instead of magic number
+    is_padding_token = np.equal(labels,
+                                -100)  # -100 is the ignore index within the labels  # TODO: Use constant instead of magic number
     non_sentence_losses = np.ma.masked_array(
         sequence_losses,
         np.logical_or(is_sentence_token, is_padding_token)  # Mask out sentence, padding, and eos tokens
@@ -98,8 +100,8 @@ def compute_metrics(
     sentinel_tokens = tokenizer.get_sentinel_token_ids()
 
     average_non_padding_tokens_per_example_input = np.not_equal(
-        input_ids, tokenizer.pad_token_id).sum(axis=1).mean()
-    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).sum(axis=1).mean()
+        input_ids, tokenizer.pad_token_id).mean()
+    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).mean()
 
     input_id_sentinel_tokens = np.isin(input_ids, sentinel_tokens)
     target_id_sentinel_tokens = np.isin(labels, sentinel_tokens)
@@ -121,7 +123,8 @@ def compute_metrics(
         ).mean()
         reconstruction_accuracy = np.ma.masked_array(
             prediction_is_correct,
-            np.logical_or(target_id_sentence_tokens, target_padding_tokens)  # Mask out sentence, padding, and eos tokens
+            np.logical_or(target_id_sentence_tokens, target_padding_tokens)
+            # Mask out sentence, padding, and eos tokens
         ).mean()
         metrics[Metric.SENTENCE_ACCURACY.value] = sentence_accuracy
         metrics[Metric.RECONSTRUCTION_ACCURACY.value] = reconstruction_accuracy
@@ -178,6 +181,45 @@ def preprocess_logits_for_metrics(
 #     # 'spearman': stats.spearmanr,
 # }
 
+def compute_fine_tune_metrics(
+        eval_preds: transformers.EvalPrediction,
+        metric: str = None,
+        benchmark: str = None,
+        dataset: str = None,
+) -> typing.Dict[str, float]:
+    """
+    Computes fine-tuning metrics for a given set of evaluation predictions.
+
+    This function takes as input evaluation predictions, and optionally a metric, benchmark, and dataset.
+    It then computes the specified metric for the given predictions. If no metric is specified,
+    it loads the appropriate metric based on the provided benchmark and dataset.
+
+    Args:
+        eval_preds (transformers.EvalPrediction): The evaluation predictions to compute metrics for.
+        metric (str, optional): The name of the metric to compute. If not provided, a metric is loaded based on the benchmark and dataset.
+        benchmark (str, optional): The name of the benchmark to use for loading the metric, if no metric is provided.
+        dataset (str, optional): The name of the dataset to use for loading the metric, if no metric is provided.
+
+    Returns:
+        dict[str, float]: A dictionary mapping metric names to their computed values.
+
+    Raises:
+        ValueError: If no metric is provided and either benchmark or dataset is None.
+    """
+    if metric is not None:
+        metric_fn = evaluate.load(metric)
+    elif benchmark is not None and dataset is not None:
+        metric_fn = evaluate.load(benchmark, dataset)
+    else:
+        raise ValueError("Either a metric or both a benchmark and dataset must be provided.")
+    preds, labels = eval_preds
+    labels_mask = labels != -100
+    labels = labels[labels_mask].reshape(-1)
+    preds = preds[labels_mask].reshape(-1)
+    return metric_fn.compute(
+        predictions=preds,
+        references=labels,
+    )
 
 # TODO: Use the following code to compute metrics for seq2seq model during evaluation
 # def compute_metrics(
