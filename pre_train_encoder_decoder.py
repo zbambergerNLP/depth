@@ -2,19 +2,19 @@ import omegaconf
 import hydra
 import typing
 from encoder_decoder_utils import (
-    constants,
     setup_utils,
     model_utils,
     optimizer_utils,
     metric_utils,
+    constants,
 )
-
+from fine_tune_constants.glue_constants import GlueConstants
+from fine_tune_constants.disco_eval_constants import DiscoEvalConstants
 from accelerate import Accelerator
 import os
 import torch
 import transformers
 import evaluate
-
 from encoder_decoder_utils.trainer import EncoderDecoderTrainer
 
 """
@@ -62,7 +62,10 @@ logging.every_steps=10
     config_name="default",
     version_base='1.3',
 )
+# TODO: Add constants file for fine_tuning tasks - change name to avoid conflicts
 def main(dict_config: omegaconf.DictConfig):
+    from encoder_decoder_utils import constants
+
     report_to: typing.List[str] = []
     if dict_config.logging.wandb:
         report_to.append(constants.MonitoringPlatform.WANDB.value)
@@ -84,15 +87,25 @@ def main(dict_config: omegaconf.DictConfig):
     logger.log_message("Initialized logger successfully.")
 
     config = model_utils.get_config(args=dict_config, logger=logger)
-    model = model_utils.get_model(args=dict_config, config=config, logger=logger)
+    tokenizer = model_utils.get_tokenizer(args=dict_config, logger=logger)
+    model = model_utils.get_model(args=dict_config, config=config, logger=logger, tokenizer=tokenizer)
+
+    logger.log_message(dict_config.mode)
+    logger.log_message(dict_config.data.benchmark_constants)
+
+    # if dict_config.mode == 'ft':
+    #     GLUE = 'glue'
+    #     DISCO_EVAL = 'OfekGlick/DiscoEval'
+    #     if dict_config.data.benchmark_constants == GLUE:
+    #         benchmark_constants = GlueConstants()
+    #     elif dict_config.data.benchmark_constants == DISCO_EVAL:
+    #         benchmark_constants = DiscoEvalConstants()
 
     # TODO: Account for model checkpoint loading in trainer
     # Load the model from a defined checkpoint
     # if dict_config.model.checkpoint_path:
     #     logger.log_message(f'Loading model from checkpoint: {dict_config.model.checkpoint_path}')
     #     accelerator.load_state(dict_config.model.checkpoint_path)
-
-    tokenizer = model_utils.get_tokenizer(args=dict_config, logger=logger)
 
     optimizer, lr_scheduler = None, None
     if not dict_config.deepspeed.use_deepspeed:
@@ -101,9 +114,19 @@ def main(dict_config: omegaconf.DictConfig):
 
     dataset_splits = model_utils.load_dataset_splits(args=dict_config, logger=logger)
     dataset_splits = model_utils.process_dataset(
-        dataset_splits=dataset_splits, args=dict_config, tokenizer=tokenizer, logger=logger)
+        dataset_splits=dataset_splits,
+        args=dict_config,
+        tokenizer=tokenizer,
+        logger=logger,
+    )
 
-    data_collator = model_utils.get_data_collator(tokenizer=tokenizer, config=config, args=dict_config, logger=logger)
+    data_collator = model_utils.get_data_collator(
+        tokenizer=tokenizer,
+        config=config,
+        args=dict_config,
+        logger=logger,
+    )
+    logger.log_message(f"#####################Data collator##################: {data_collator}")
     logger.log_args(args=dict_config)
     per_device_train_batch_size = (
             dict_config.optim.batch_size // dict_config.optim.grad_acc // dict_config.num_gpus
@@ -160,6 +183,7 @@ def main(dict_config: omegaconf.DictConfig):
 
     optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
 
+    # TODO: Add support for fine-tuning metrics
     def compute_metrics(eval_preds: transformers.trainer_utils.EvalPrediction) -> typing.Mapping[str, float]:
         """
         Return a collection of evaluation metrics given a (logits, labels) pair for a multi-class classification problem.
@@ -182,6 +206,8 @@ def main(dict_config: omegaconf.DictConfig):
     )
 
     trainer.train()
+
+    # TODO: Add evaluation phase
 
 
 if __name__ == '__main__':

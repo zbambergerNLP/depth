@@ -129,6 +129,14 @@ data:
   # batches will have their examples' sentences shuffled.
   sentence_shuffling_probability: 0.5
 
+  benchmark_constants: 'glue'
+
+  benchmark_dataset: 'sst2'
+
+  mnli_sub_dir: 'mismatched'
+
+  test_results_save_dir: 'test_results/'
+
 optim:
 
   # The optimizer to use.
@@ -139,7 +147,7 @@ optim:
   #   'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision', 'sgd', 'adagrad',
   #   'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit', 'paged_adamw_32bit', 'paged_adamw_8bit',
   #   'paged_lion_32bit', 'paged_lion_8bit', 'rmsprop'
-  name: adamwscale
+  name: adamw_torch
 
   # The initial learning rate to use for the optimizer (not including warmup).
   base_lr: 2e-2

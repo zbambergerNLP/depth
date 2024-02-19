@@ -1,5 +1,5 @@
 import time
-
+import csv
 import evaluate
 import omegaconf
 import hydra
@@ -20,6 +20,7 @@ import os
 import transformers
 
 from encoder_decoder_utils.trainer import EncoderDecoderTrainer
+from fine_tune_constants import glue_constants, disco_eval_constants
 
 """
 source .depth/bin/activate
@@ -29,7 +30,7 @@ T5 example usage:
 deepspeed \
 --no_local_rank \
 --master_port=12345 \
-pre_train_encoder_decoder.py \
+train_encoder_decoder.py \
 num_gpus=4 \
 num_cpus=32 \
 model.model_implementation=hf_t5 \
@@ -93,7 +94,6 @@ def main(dict_config: omegaconf.DictConfig):
     config = model_utils.get_config(args=dict_config, logger=logger)
     model = model_utils.get_model(args=dict_config, config=config, logger=logger, tokenizer=tokenizer)
 
-
     optimizer = optimizer_utils.get_optimizer(model=model, args=dict_config, logger=logger)
     logger.log_message(f"Optimizer: {optimizer}")
     lr_scheduler = optimizer_utils.get_lr_scheduler(optimizer=optimizer, args=dict_config, logger=logger)
@@ -101,9 +101,20 @@ def main(dict_config: omegaconf.DictConfig):
 
     dataset_splits = model_utils.load_dataset_splits(args=dict_config, logger=logger)
     dataset_splits = model_utils.process_dataset(
-        dataset_splits=dataset_splits, args=dict_config, tokenizer=tokenizer, logger=logger)
+        dataset_splits=dataset_splits,
+        args=dict_config,
+        tokenizer=tokenizer,
+        logger=logger,
+    )
 
-    data_collator = model_utils.get_data_collator(tokenizer=tokenizer, config=config, args=dict_config, logger=logger)
+    logger.log_message(f"Dataset splits: {dataset_splits.keys()}")
+    data_collator = model_utils.get_data_collator(
+        tokenizer=tokenizer,
+        config=config,
+        args=dict_config,
+        logger=logger,
+    )
+    logger.log_message(f"Data collator: {type(data_collator)}")
     logger.log_args(args=dict_config)
     per_device_train_batch_size = (
             dict_config.optim.batch_size // dict_config.optim.grad_acc // dict_config.num_gpus
@@ -163,35 +174,38 @@ def main(dict_config: omegaconf.DictConfig):
         deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,
     )
 
-    # optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
-    optimizers = (optimizer, lr_scheduler)
-
-    # def compute_metrics(eval_preds: transformers.trainer_utils.EvalPrediction) -> typing.Mapping[str, float]:
-    #     """
-    #     Return a collection of evaluation metrics given a (logits, labels) pair for a multi-class classification problem.
-    #     :param eval_preds: A 2-tuple of the form [logits, labels]. Labels is a collection of integers representing the label
-    #         of the input. Logits is a collection of tensors corresponding to the model's logits for each input in the batch.
-    #     :return: A dictionary of metrics (mapping string metric names to float metric values).
-    #     """
-    #     return metric_utils.compute_metrics(eval_preds=eval_preds, tokenizer=tokenizer)
+    optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
 
     def compute_metrics(eval_preds):
-        accuracy = evaluate.load('accuracy')
-        preds, labels = eval_preds
-        # preds have the same shape as the labels, after the argmax(-1) has been calculated
-        # by preprocess_logits_for_metrics but we need to shift the labels
-        labels = labels[:, 1:].reshape(-1)
-        preds = preds[:, :-1].reshape(-1)
-        return accuracy.compute(
-            predictions=preds,
-            references=labels,
-        )
+        if dict_config.mode == constants.TrainingPhase.PT:
+            return metric_utils.compute_metrics(
+                eval_preds=eval_preds,
+                tokenizer=tokenizer,
+            )
+        else:
+            if dict_config.model.model_implementation == constants.ModelImplementation.DEPTH.value:
+                raise NotImplementedError("Depth model does not support evaluation metrics in fine tuning.")
+            else:
+                if dict_config.data.benchmark_constants == 'glue':
+                    return metric_utils.compute_fine_tune_metrics(
+                        eval_preds=eval_preds,
+                        benchmark=dict_config.data.benchmark_constants,
+                        dataset=dict_config.data.benchmark_dataset,
+                    )
+                else:
+                    # TODO: Use constants instead of literal strings
+                    return metric_utils.compute_fine_tune_metrics(
+                        eval_preds=eval_preds,
+                        metric='accuracy',
+                    )
 
     trainer = EncoderDecoderTrainer(
         model=model,
         args=training_arguments,
         train_dataset=dataset_splits[constants.DatasetSplit.TRAIN.value],
-        eval_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
+        eval_dataset=dataset_splits[
+            constants.DatasetSplit.TEST.value if dict_config.mode == constants.TrainingPhase.PT
+            else constants.DatasetSplit.VALIDATION.value],
         tokenizer=tokenizer,
         optimizers=optimizers,
         data_collator=data_collator,
@@ -206,6 +220,47 @@ def main(dict_config: omegaconf.DictConfig):
     )
 
     trainer.train()
+
+    test_predictions, test_labels, _ = trainer.predict(
+        test_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
+        metric_key_prefix=constants.DatasetSplit.TEST.value,
+    )
+
+
+    if dict_config.data.benchmark_constants == 'glue':
+        ft_constants = glue_constants.GlueConstants()
+        file_name = ft_constants[dict_config.data.benchmark_dataset].SUBMISSION_NAME
+        label_ids_mask = (test_labels != -100) & (test_labels != tokenizer.eos_token_id) & (
+                test_labels != tokenizer.pad_token_id)
+        test_predictions = test_predictions[label_ids_mask].reshape(-1)
+        label_to_id = {label:id for id, label in ft_constants[dict_config.data.benchmark_dataset].LABELS.items()}
+        test_predictions_for_tsv = []
+        for idx, pred in enumerate(test_predictions):
+            if tokenizer.decode(pred) in label_to_id.keys():
+                test_predictions_for_tsv.append((idx, label_to_id[tokenizer.decode(pred)]))
+            else:
+                test_predictions_for_tsv.append((idx, ft_constants.OTHER))
+        try:
+            os.mkdir(dict_config.data.test_results_save_dir)
+        except FileExistsError:
+            logger.log_message(f"Directory {dict_config.data.test_results_save_dir} already exists. Continuing...")
+        if dict_config.data.benchmark_dataset == 'mnli':
+            if dict_config.data.mnli_sub_dir == 'mismatched':
+                file_names = file_name.split(".")
+                file_name = file_names[0] + "-mm." + file_names[1]
+            else:
+                file_names = file_name.split(".")
+                file_name = file_names[0] + "-m." + file_names[1]
+        with open(file_name, 'w', newline='') as f:
+            writer = csv.writer(f, delimiter='\t')
+            # Write the header
+            writer.writerow(['id', 'label'])
+            # Write the data
+            for row in test_predictions_for_tsv:
+                writer.writerow(row)
+    else:
+        ft_constants = disco_eval_constants.DiscoEvalConstants()
+    logger.log_message(f"Test predictions: {test_predictions}")
 
 
 if __name__ == '__main__':
