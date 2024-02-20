@@ -30,6 +30,7 @@ class DiscoEvalConstants:
     A dataclass for DiscoEval constants. Inherits from BasicConstants.
     """
     DISCO_EVAL: str = 'OfekGlick/DiscoEval'
+    OTHER: str = 'other'
     # DiscoEval Task Names
     SSPABS = 'SSPabs'
     PDTB_I = 'PDTB_I'
