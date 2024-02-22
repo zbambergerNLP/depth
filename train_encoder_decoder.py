@@ -177,6 +177,9 @@ def main(dict_config: omegaconf.DictConfig):
 
     optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
 
+    ft_constants = glue_constants.GlueConstants() if dict_config.data.benchmark_constants == 'glue' \
+        else disco_eval_constants.DiscoEvalConstants()
+
     def compute_metrics(eval_preds):
         if dict_config.mode == constants.TrainingPhase.PT:
             return metric_utils.compute_metrics(
@@ -192,12 +195,16 @@ def main(dict_config: omegaconf.DictConfig):
                         eval_preds=eval_preds,
                         benchmark=dict_config.data.benchmark_constants,
                         dataset=dict_config.data.benchmark_dataset,
+                        tokenizer=tokenizer,
+                        ft_constants=ft_constants,
                     )
                 else:
                     # TODO: Use constants instead of literal strings
                     return metric_utils.compute_fine_tune_metrics(
                         eval_preds=eval_preds,
                         metric='accuracy',
+                        tokenizer=tokenizer,
+                        ft_constants=ft_constants,
                     )
 
     trainer = EncoderDecoderTrainer(
@@ -226,15 +233,12 @@ def main(dict_config: omegaconf.DictConfig):
         test_dataset=dataset_splits[constants.DatasetSplit.TEST.value],
         metric_key_prefix=constants.DatasetSplit.TEST.value,
     )
-    print(test_metrics)
-    print(test_predictions)
-    print(test_labels)
+    logger.log_message(f"Test metrics: {test_metrics}")
     if dict_config.data.benchmark_constants == 'glue':
         """
         The following code is specific to the GLUE benchmark. It creates
         """
         # Load the constants for the GLUE benchmark.
-        ft_constants = glue_constants.GlueConstants()
         file_name = ft_constants[dict_config.data.benchmark_dataset].SUBMISSION_NAME
         # Find the indices of the labels that are not -100, eos_token_id, or pad_token_id (Only prediction).
         label_ids_mask = (test_labels != -100) & (test_labels != tokenizer.eos_token_id) & (
