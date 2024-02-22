@@ -242,6 +242,10 @@ def load_dataset_splits(
                 training_set = dataset[constants.DatasetSplit.TRAIN.value]
                 validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
                 test_set = dataset[constants.DatasetSplit.TEST.value]
+        else:
+            training_set = dataset[constants.DatasetSplit.TRAIN.value]
+            validation_set = dataset[constants.DatasetSplit.VALIDATION.value]
+            test_set = dataset[constants.DatasetSplit.TEST.value]
         dataset_splits = {
             constants.DatasetSplit.TRAIN.value: training_set,
             constants.DatasetSplit.VALIDATION.value: validation_set,

@@ -186,6 +186,8 @@ def compute_fine_tune_metrics(
         metric: str = None,
         benchmark: str = None,
         dataset: str = None,
+        ft_constants: typing.Any = None,
+        tokenizer: transformers.PreTrainedTokenizer = None,
 ) -> typing.Dict[str, float]:
     """
     Computes fine-tuning metrics for a given set of evaluation predictions.
@@ -199,7 +201,8 @@ def compute_fine_tune_metrics(
         metric (str, optional): The name of the metric to compute. If not provided, a metric is loaded based on the benchmark and dataset.
         benchmark (str, optional): The name of the benchmark to use for loading the metric, if no metric is provided.
         dataset (str, optional): The name of the dataset to use for loading the metric, if no metric is provided.
-
+        ft_constants (typing.Any): The fine-tuning constants for the model.
+        tokenizer (transformers.PreTrainedTokenizer): The tokenizer used to encode the inputs and labels.
     Returns:
         dict[str, float]: A dictionary mapping metric names to their computed values.
 
@@ -213,9 +216,28 @@ def compute_fine_tune_metrics(
     else:
         raise ValueError("Either a metric or both a benchmark and dataset must be provided.")
     preds, labels = eval_preds
-    labels_mask = labels != -100
+    # Extract relevant tokens for prediction
+    labels_mask = (
+            (labels != -100) &
+            (labels != tokenizer.eos_token_id) &
+            (labels != tokenizer.pad_token_id)
+    )
+    # Flatten the predictions and labels
     labels = labels[labels_mask].reshape(-1)
     preds = preds[labels_mask].reshape(-1)
+    # Create a dictionary to map the label to the prediction id.
+    label_to_id = {label: idx for idx, label in ft_constants[dataset].LABELS.items()}
+    predictions_converted = []
+    labels_converted = []
+    for pred, label in zip(preds, labels):
+        if tokenizer.decode(pred) in label_to_id.keys():
+            predictions_converted.append(label_to_id[tokenizer.decode(pred)])
+        else:
+            try:
+                predictions_converted.append(label_to_id[ft_constants.OTHER])
+            except Exception:
+                predictions_converted.append(-1)
+        labels_converted.append(label_to_id[tokenizer.decode(label)])
     return metric_fn.compute(
         predictions=preds,
         references=labels,
