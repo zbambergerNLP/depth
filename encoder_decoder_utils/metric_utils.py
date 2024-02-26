@@ -1,11 +1,11 @@
 import typing
-
+import nltk
 import numpy as np
 import torch
 import transformers
 import evaluate
 from encoder_decoder_utils import constants, tokenizer_utils
-
+import random
 from encoder_decoder_utils.constants import Metric
 
 
@@ -181,6 +181,14 @@ def preprocess_logits_for_metrics(
 #     # 'spearman': stats.spearmanr,
 # }
 
+def postprocess_text(preds, labels):
+    preds = [pred.strip() for pred in preds]
+    labels = [label.strip() for label in labels]
+    preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+    labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+    return preds, labels
+
+
 def compute_fine_tune_metrics(
         eval_preds: transformers.EvalPrediction,
         metric: str = None,
@@ -216,31 +224,45 @@ def compute_fine_tune_metrics(
     else:
         raise ValueError("Either a metric or both a benchmark and dataset must be provided.")
     preds, labels = eval_preds
-    # Extract relevant tokens for prediction
-    labels_mask = (
-            (labels != -100) &
-            (labels != tokenizer.eos_token_id) &
-            (labels != tokenizer.pad_token_id)
-    )
-    # Flatten the predictions and labels
-    labels = labels[labels_mask].reshape(-1)
-    preds = preds[labels_mask].reshape(-1)
-    # Create a dictionary to map the label to the prediction id.
+    # Replace -100s used for padding as we can't decode them
+    preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    # Some simple post-processing
+    decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+    # TODO: use a constant
+
     label_to_id = {label: idx for idx, label in ft_constants[dataset].LABELS.items()}
+    possible_labels = set(label_to_id.keys()) - {-1}
     predictions_converted = []
     labels_converted = []
-    for pred, label in zip(preds, labels):
-        if tokenizer.decode(pred) in label_to_id.keys():
-            predictions_converted.append(label_to_id[tokenizer.decode(pred)])
-        else:
+    for pred, label in zip(decoded_preds, decoded_labels):
+        # TODO: use a constant
+        if dataset == 'stsb':
+            labels_converted.append(round(float(label) / 0.2) * 0.2)
             try:
-                predictions_converted.append(label_to_id[ft_constants.OTHER])
+                predictions_converted.append(round(float(pred) / 0.2) * 0.2)
             except Exception:
-                predictions_converted.append(-1)
-        labels_converted.append(label_to_id[tokenizer.decode(label)])
+                predictions_converted.append(random.sample([0.0, 5.0], 1)[0])
+        else:
+            if pred in label_to_id.keys():
+                predictions_converted.append(label_to_id[pred])
+            else:
+                # In the case that the model predicts a label that is not in the possible labels, we will randomly select
+                # another label from the possible labels that isn't the correct label.
+                other_labels = list(possible_labels - {pred})
+                wrong_label = random.sample(other_labels, 1)[0]
+                predictions_converted.append(label_to_id[wrong_label])
+                # try:
+                #     predictions_converted.append(label_to_id[ft_constants.OTHER])
+                # except Exception:
+                #     predictions_converted.append(-1)
+                labels_converted.append(label_to_id[label])
     return metric_fn.compute(
-        predictions=preds,
-        references=labels,
+        predictions=predictions_converted,
+        references=labels_converted,
     )
 
 # TODO: Use the following code to compute metrics for seq2seq model during evaluation
