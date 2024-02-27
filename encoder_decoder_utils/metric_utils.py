@@ -234,8 +234,9 @@ def compute_fine_tune_metrics(
     decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
     # TODO: use a constant
 
-    label_to_id = {label: idx for idx, label in ft_constants[dataset].LABELS.items()}
-    possible_labels = set(label_to_id.keys()) - {-1}
+    label_to_id = {label: idx for idx, label in ft_constants[dataset].LABELS.items() if
+                   label != ft_constants[dataset].OTHER}
+    possible_labels = set(label_to_id.keys()) - {'other'}
     predictions_converted = []
     labels_converted = []
     for pred, label in zip(decoded_preds, decoded_labels):
