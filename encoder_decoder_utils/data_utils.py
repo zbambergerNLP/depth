@@ -272,7 +272,7 @@ def preprocess_function_two_inputs(
     encoding = np.array(encoding.input_ids)
     results = {TokenizerConstants.INPUT_IDS: encoding}
     if is_regression:  # Training task involves predicting continuous values
-        outputs = [str(round(example, 1)) for example in examples[label_column_name]]
+        outputs = [str(round(example / 0.2) * 0.2) for example in examples[label_column_name]]
     else:  # Training task involves predicting a label from a predefined set of possible labels.
         outputs = [label_names[example] for example in examples[label_column_name]]
 
