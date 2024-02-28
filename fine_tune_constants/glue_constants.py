@@ -1,3 +1,5 @@
+import numpy as np
+
 from fine_tune_constants.base_constants import *
 from dataclasses import dataclass
 import typing
@@ -293,7 +295,9 @@ class GlueConstants:
                 MetricConstants.PRECISION,
                 MetricConstants.RECALL,
             ],
-            LABELS=None
+            LABELS={
+                key: str(key) for key in np.arange(0, 5, 0.2)
+            }
         )
 
         self.MNLI_MATCHED_TASK = TaskConfigTwoInput(

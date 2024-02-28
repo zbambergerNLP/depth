@@ -1,18 +1,35 @@
 import typing
-
+import nltk
 import numpy as np
 import torch
 import transformers
 import evaluate
+import random
 from encoder_decoder_utils import constants, tokenizer_utils
-
 from encoder_decoder_utils.constants import Metric
 
+
+def postprocess_text(
+        preds: typing.List[str],
+        labels: typing.List[str],
+) -> typing.Tuple[typing.List[str], typing.List[str]]:
+    """
+    Postprocess the predictions and labels to ensure that they are in the correct format for computing metrics.
+    :param preds: The predictions from the model, decoded from the logits via the tokenizer.
+    :param labels: The labels for the model, decoded from the label ids via the tokenizer.
+    :return: A 2-tuple containing the postprocessed predictions and labels. The postprocessed predictions and labels
+        should be in the correct format for computing metrics.
+    """
+    preds = [pred.strip() for pred in preds]
+    labels = [label.strip() for label in labels]
+    preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+    labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+    return preds, labels
 
 # TODO: Add metrics specifically for DEPTH
 def compute_metrics_depth(
         eval_preds: transformers.trainer_utils.EvalPrediction,
-        tokenizer: transformers.PreTrainedTokenizer,
+        tokenizer: tokenizer_utils.DepthTokenizer,
         sequence_losses: np.ndarray,  # A tensor of shape (batch_size, sequence_length)
 ) -> typing.Mapping[str, float]:
     """
@@ -56,14 +73,27 @@ def compute_metrics_depth(
     )
     average_loss_on_sentence_tokens = sentence_losses.mean()
     variance_loss_on_sentence_tokens = sentence_losses.var()
-    is_padding_token = np.equal(labels,
-                                -100)  # -100 is the ignore index within the labels  # TODO: Use constant instead of magic number
+    is_padding_token = np.equal(labels, -100)  # -100 is the ignore index within the labels  # TODO: Use constant instead of magic number
     non_sentence_losses = np.ma.masked_array(
         sequence_losses,
         np.logical_or(is_sentence_token, is_padding_token)  # Mask out sentence, padding, and eos tokens
     )
     average_loss_on_non_sentence_tokens = non_sentence_losses.mean()
     variance_loss_on_non_sentence_tokens = non_sentence_losses.var()
+
+    prediction_is_correct = np.equal(predictions, labels)
+    sentence_accuracy = np.ma.masked_array(
+        prediction_is_correct,
+        np.logical_not(is_sentence_token),  # Mask out non-sentence tokens
+    ).mean()
+
+    reconstruction_accuracy = np.ma.masked_array(
+        prediction_is_correct,
+        np.logical_or(is_sentence_token, is_padding_token)  # Mask out sentence and padding tokens
+    ).mean()
+
+    sentence_tokens_per_example = np.mean(is_sentence_token, axis=1)
+
     metrics.update({
         constants.Metric.AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT.value:
             average_non_padding_tokens_per_example_input,
@@ -75,6 +105,9 @@ def compute_metrics_depth(
         constants.Metric.VARIANCE_LOSS_ON_SENTENCE_TOKENS.value: variance_loss_on_sentence_tokens,
         constants.Metric.AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS.value: average_loss_on_non_sentence_tokens,
         constants.Metric.VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS.value: variance_loss_on_non_sentence_tokens,
+        constants.Metric.SENTENCE_ACCURACY.value: sentence_accuracy,
+        constants.Metric.RECONSTRUCTION_ACCURACY.value: reconstruction_accuracy,
+        # constants.Metric.NUM_SENTENCE_TOKENS.value: sentence_tokens_per_example,
     })
     return metrics
 
@@ -100,8 +133,13 @@ def compute_metrics(
     sentinel_tokens = tokenizer.get_sentinel_token_ids()
 
     average_non_padding_tokens_per_example_input = np.not_equal(
-        input_ids, tokenizer.pad_token_id).mean()
-    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).mean()
+        input_ids,
+        tokenizer.pad_token_id
+    ).mean()
+    average_non_padding_tokens_per_example_label = np.not_equal(
+        labels,
+        -100
+    ).mean()
 
     input_id_sentinel_tokens = np.isin(input_ids, sentinel_tokens)
     target_id_sentinel_tokens = np.isin(labels, sentinel_tokens)
@@ -123,8 +161,8 @@ def compute_metrics(
         ).mean()
         reconstruction_accuracy = np.ma.masked_array(
             prediction_is_correct,
+            # Mask out sentence and padding tokens
             np.logical_or(target_id_sentence_tokens, target_padding_tokens)
-            # Mask out sentence, padding, and eos tokens
         ).mean()
         metrics[Metric.SENTENCE_ACCURACY.value] = sentence_accuracy
         metrics[Metric.RECONSTRUCTION_ACCURACY.value] = reconstruction_accuracy
@@ -156,30 +194,6 @@ def preprocess_logits_for_metrics(
         # like past_key_values, but logits always come first
         logits = logits[0]
     return logits.argmax(dim=-1)
-
-
-# TODO: Use the following code to compute metrics for seq2seq model during evaluation
-# METRIC_NAME_TO_FUNC = {
-#     'accuracy': accuracy_score,
-#     'f1': lambda labels, prediction: f1_score(
-#         y_true=labels,
-#         y_pred=prediction,
-#         average='micro',
-#     ),
-#     'precision': lambda labels, prediction: precision_score(
-#         y_true=labels,
-#         y_pred=prediction,
-#         average='micro',
-#     ),
-#     'recall': lambda labels, prediction: recall_score(
-#         y_true=labels,
-#         y_pred=prediction,
-#         average='micro',
-#     ),
-#     'mcc': matthews_corrcoef,
-#     # 'pearson': stats.pearsonr,
-#     # 'spearman': stats.spearmanr,
-# }
 
 def compute_fine_tune_metrics(
         eval_preds: transformers.EvalPrediction,
@@ -216,90 +230,52 @@ def compute_fine_tune_metrics(
     else:
         raise ValueError("Either a metric or both a benchmark and dataset must be provided.")
     preds, labels = eval_preds
-    # Extract relevant tokens for prediction
-    labels_mask = (
-            (labels != -100) &
-            (labels != tokenizer.eos_token_id) &
-            (labels != tokenizer.pad_token_id)
-    )
-    # Flatten the predictions and labels
-    labels = labels[labels_mask].reshape(-1)
-    preds = preds[labels_mask].reshape(-1)
+    if len(preds.shape) == 1:
+        preds = preds.reshape(-1, 1)
+
+    # Replace -100s used for padding as we can't decode them
+    preds = np.where(labels != -100, preds, tokenizer.pad_token_id)
+    decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    # Some simple post-processing
+    decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+
     # Create a dictionary to map the label to the prediction id.
     label_to_id = {label: idx for idx, label in ft_constants[dataset].LABELS.items()}
+    possible_labels = set(label_to_id.keys())
     predictions_converted = []
     labels_converted = []
-    for pred, label in zip(preds, labels):
-        if tokenizer.decode(pred) in label_to_id.keys():
-            predictions_converted.append(label_to_id[tokenizer.decode(pred)])
-        else:
-            try:
-                predictions_converted.append(label_to_id[ft_constants.OTHER])
-            except Exception:
-                predictions_converted.append(-1)
-        labels_converted.append(label_to_id[tokenizer.decode(label)])
-    return metric_fn.compute(
-        predictions=preds,
-        references=labels,
-    )
+    for pred, label in zip(decoded_preds, decoded_labels):
 
-# TODO: Use the following code to compute metrics for seq2seq model during evaluation
-# def compute_metrics(
-#         eval_pred: transformers.EvalPrediction,
-#         metric_names: typing.List[str],
-#         tokenizer: transformers.PreTrainedTokenizer,
-# ) -> typing.Dict[str, float]:
-#     """Compute the accuracy of the model.
-#
-#     Args:
-#         eval_pred: A namedtuple containing the model predictions and labels.
-#         metric_names: The names of the metrics to be used for evaluation on a benchmark task.
-#         tokenizer: The tokenizer used to encode the inputs and labels.
-#
-#     Returns:
-#         A dictionary containing the accuracy of the model.
-#     """
-#     predictions, labels = eval_pred
-#     predictions: np.ndarray  # Shape is [batch_size, target_sequence_length]
-#     labels: np.ndarray       # Shape is [batch_size, target_sequence_length]
-#     metrics = {}
-#     labels[labels == -100] = tokenizer.pad_token_id
-#
-#     if predictions[:, 0].max() == tokenizer.pad_token_id:  # Check if the first token in the predictions is the padding token
-#         # Skip the first token in the predictions (i.e., the decoder start token), and add a padding token at the end
-#         predictions = np.concatenate(
-#             [predictions[:, 1:],
-#              np.full(
-#                  (predictions.shape[0], 1),
-#                  tokenizer.pad_token_id)
-#              ],
-#             axis=1,
-#         )
-#
-#     is_correct = np.equal(predictions, labels)
-#     num_correct_per_example = is_correct.sum(axis=1)
-#     ideal_num_correct_per_example = np.ones_like(num_correct_per_example) * labels.shape[1]
-#     example_is_correct = np.equal(num_correct_per_example, ideal_num_correct_per_example)
-#
-#     predictions = predictions[(labels != tokenizer.pad_token_id) & (labels != tokenizer.eos_token_id)]
-#     labels = labels[(labels != tokenizer.pad_token_type_id) & (labels != tokenizer.eos_token_id)]
-#
-#     # Get the metrics!
-#     for metric_name in metric_names:
-#         # Metrics from scipy return `statistic` and `pvalue`, but we are only interested in the statistic.
-#         if metric_name == 'pearson' or metric_name == 'spearman':
-#             # Get the statistic (not the pvalue)
-#             metrics[f'token_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](labels, predictions)[0]
-#             metrics[f'example_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](
-#                 example_is_correct, np.ones_like(example_is_correct))[0]
-#         # Multiply mcc by 100 to remain consistent with the original T5 implementation:
-#         # https://github.com/google-research/text-to-text-transfer-transformer/blob/main/t5/data/glue_utils.py#L140
-#         elif metric_name == 'mcc':
-#             metrics[f'token_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](labels, predictions) * 100
-#             metrics[f'example_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](
-#                 example_is_correct, np.ones_like(example_is_correct)) * 100
-#         else:
-#             metrics[f'token_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](labels, predictions)
-#             metrics[f'example_{metric_name}'] = METRIC_NAME_TO_FUNC[metric_name](
-#                 example_is_correct, np.ones_like(example_is_correct))
-#     return metrics
+        if dataset == constants.GLUEConstants.STS_B:
+            possible_labels = set(label_to_id.keys())
+            labels_converted.append(round(float(label) / 0.2) * 0.2)
+            try:
+                # If the prediction is a number, we round it to the nearest 0.2, as was proposed in the T5 paper.
+                predictions_converted.append(round(float(pred) / 0.2) * 0.2)
+            except ValueError:
+                # If the prediction is not a number, we select the label that is farthest from the correct label.
+                # This is done to ensure that the metric is as low as possible so as to convey that the model is
+                # not performing well.
+                predictions_converted.append(5.0 if float(label) < 2.5 else 0.0)
+
+        else:
+            # In classification datasets (excluding STS-B), we remove the "unknown" label from the possible labels
+            #  (the unknown label corresponds with the ID -1, whereas other labels start at 0).
+            possible_labels -= {ft_constants[dataset].LABELS[-1]}
+            if pred in label_to_id.keys():
+                predictions_converted.append(label_to_id[pred])
+            else:
+                # In the case that the model predicts a label that is not in the possible labels, we will randomly
+                # select another label from the possible labels that isn't the correct label.
+                other_labels = list(possible_labels - {label})
+                wrong_label = random.sample(other_labels, 1)[0]
+                predictions_converted.append(label_to_id[wrong_label])
+            labels_converted.append(label_to_id[label])
+
+    return metric_fn.compute(
+        predictions=predictions_converted,
+        references=labels_converted,
+    )

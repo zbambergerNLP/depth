@@ -1,6 +1,5 @@
+import collections
 import typing
-from collections import defaultdict
-
 import omegaconf
 import logging
 import datasets
@@ -8,16 +7,18 @@ import transformers
 import os
 import neptune
 import accelerate
-from encoder_decoder_utils.constants import (
-    MonitoringPlatform,
-    TagCategory,
-)
+
+from encoder_decoder_utils import constants, setup_utils
 import wandb
-import torch
 
 
 class Logger:
-    def __init__(self, args: omegaconf.DictConfig, accelerator: accelerate.Accelerator):
+    def __init__(
+            self,
+            args: omegaconf.DictConfig,
+            accelerator: accelerate.Accelerator,
+            experiment: setup_utils.Experiment,
+    ):
         """
         Initialize the logger.
 
@@ -26,7 +27,10 @@ class Logger:
         :param args: The arguments for the run. A hydra config which contains the model, data, and training arguments.
             See the configs/default.yaml file for the default configuration.
         :param accelerator: The accelerator object which will be used to train the model.
+        :param experiment: The experiment object which defines the experiment hyper-parameters. Use to construct the
+            name of the run for logging.
         """
+        self.experiment = experiment
         self.logger = accelerate.logging.get_logger('Main')
 
         # Make one log on every process with the configuration for debugging.
@@ -39,9 +43,11 @@ class Logger:
         self.logger.info(f'Working directory is {os.getcwd()}')
 
         if accelerator.is_local_main_process:
+            # Log everything on the main process
             datasets.utils.logging.set_verbosity_warning()
             transformers.utils.logging.set_verbosity_info()
         else:
+            # Only log errors on the other processes
             datasets.utils.logging.set_verbosity_error()
             transformers.utils.logging.set_verbosity_error()
 
@@ -90,78 +96,61 @@ class Logger:
         :param args: The arguments for the run. A hydra config which contains the model, data, and training arguments.
             See the configs/default.yaml file for the default configuration.
         """
-        # TODO: Create an experiment name based on the model name and learning rate and save it as the name of the
-        #  wandb run
+        experiment_name = self.experiment.name
         if args.logging.wandb:
-            tags = self._create_tags(args)
             self.accelerator.init_trackers(
                 project_name=args.logging.wandb_creds.project,
                 # Create a dictionary from args and pass it to wandb as a config
                 config=dict(args),
                 init_kwargs={
-                    MonitoringPlatform.WANDB.value: {
-                        'tags': tags,           # A list of tags to filter runs by on the wandb dashboard
-                        'job_type': args.mode,  # Either 'pt' for pre-training or 'ft' for fine-tuning
+                    constants.MonitoringPlatform.WANDB.value: {
+                        'name': experiment_name,    # The name of the experiment run
+                        'job_type': args.mode,      # Either 'pt' for pre-training or 'ft' for fine-tuning
                     }
                 }
             )
-            wandb_logger = self.accelerator.get_tracker(MonitoringPlatform.WANDB.value, unwrap=True)
+            wandb_logger = self.accelerator.get_tracker(constants.MonitoringPlatform.WANDB.value, unwrap=True)
         else:
             wandb_logger = None
 
         return wandb_logger
 
-    def _create_tags(self, args: omegaconf.DictConfig):
-        """
-        Create tags the experiment run.
-
-        Create tags on the basis of:
-        - model name
-        - dataset name
-        - batch size
-        - learning rate
-        - number of epochs
-        - number of steps
-        - model implementation (e.g. huggingface, vs. Megatron LM, vs. local)
-        - precision (e.g. fp32, fp16, etc.)
-        - number of GPUs
-
-        :param args: The arguments for the run. A hydra config which contains the model, data, and training arguments.
-            See the configs/default.yaml file for the default configuration.
-        :return: A list of string tags to add to the experiment run.
-        """
-        tags = [
-            f'{TagCategory.MODEL.value}_{args.model.name}',
-            f'{TagCategory.DATASET.value}_{args.dataset.path}',
-            f'{TagCategory.BATCH_SIZE.value}_{args.optim.batch_size}',
-            f'{TagCategory.BASE_LR.value}_{args.optim.base_lr}',
-            f'{TagCategory.LR_SCHEDULER.value}_{args.optim.lr_scheduler}',
-            f'{TagCategory.EPOCHS.value}_{args.optim.epochs}',
-            f'{TagCategory.STEPS.value}_{args.optim.total_steps}',
-            f'{TagCategory.IMPLEMENTATION.value}_{args.model.model_implementation}',
-            f'{TagCategory.PRECISION.value}_{args.precision}',
-            f'{TagCategory.NUM_PROCESSES.value}_{self.accelerator.state.num_processes}',
-            f'{TagCategory.NUM_GPUS.value}_{torch.cuda.device_count()}',
-        ]
-        return tags
-
-    def log_args(self, args: omegaconf.DictConfig):
+    def log_args(
+            self,
+            args: omegaconf.DictConfig,
+    ):
         """
         Log the omegaconfig (arguments/hyperparameters) to neptune.
 
         :param args: The arguments for the run. A hydra config which contains the model, data, and training arguments.
             See the configs/default.yaml file for the default configuration.
         """
-
+        all_args = {}
         logging_args = omegaconf.OmegaConf.to_container(args, resolve=True)
+
+        # Flatten the nested dictionary
+        def flatten(d, parent_key='', sep='_'):
+            items = []
+            for k, v in d.items():
+                new_key = f'{parent_key}{sep}{k}' if parent_key else k
+                if isinstance(v, collections.MutableMapping):
+                    items.extend(flatten(v, new_key, sep=sep).items())
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+
+        for k, v in flatten(logging_args).items():
+            all_args[k] = v
+
         if self.neptune_logger is not None:
-            self.neptune_logger['args'] = logging_args
+            self.neptune_logger['args'] = all_args
+        if self.wandb_logger and self.accelerator.is_local_main_process:
+            self.wandb_logger.config.update(all_args)
 
     def log_stats(
             self,
             stats: typing.Dict[str, float],
             step: int,
-            args: omegaconf.DictConfig,
             prefix: str ='',
     ):
         """
@@ -179,23 +168,11 @@ class Logger:
         :param prefix: The prefix to add to the statistics when logging to neptune. Default is an empty string. For
             example, if the prefix is 'train_', then the statistics will be logged to neptune as 'train_{stat_name}'.
         """
-        # TODO: Keep track of total training time
-        # TODO: Predict and visualize the expected time to completion
         if self.neptune_logger is not None:
             for k, v in stats.items():
                 self.neptune_logger[f'{prefix}{k}'].log(v, step=step)
         if self.wandb_logger and self.accelerator.is_local_main_process:
             wandb.log(stats, step=step)
-
-        # TODO: Create this message using a tqdm progress bar. The progress bar should be updated every time the
-        #  statistics are logged. The progress bar should be updated with the current step and the total number of
-        #  steps. The progress bar should also be updated with the current statistics (e.g. loss, learning rate, etc.)
-        # msg_start = f'[{prefix[:-1]}] Step {step} out of {args.optim.total_steps}' + ' | '
-        # dict_msg = ' | '.join([f'{k.capitalize()} --> {v:.3f}' for k, v in stats.items()]) + ' | '
-        #
-        # msg = msg_start + dict_msg
-        #
-        # self.log_message(msg)
 
     def log_message(self, msg: str):
         """
@@ -214,5 +191,5 @@ class Logger:
         if self.neptune_logger is not None:
             self.neptune_logger.stop()
         if self.wandb_logger is not None:
-            self.wandb_logger.close()
+            self.wandb_logger.finish()
 

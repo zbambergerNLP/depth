@@ -23,6 +23,7 @@ def get_model(
         config: transformers.PretrainedConfig,
         logger: Logger,
         tokenizer: transformers.PreTrainedTokenizer,
+        last_checkpoint: typing.Optional[str] = None,
 ) -> typing.Union[
     transformers.T5ForConditionalGeneration,
     t5_model.DepthForConditionalGeneration,
@@ -40,6 +41,7 @@ def get_model(
     :param config: The model configuration. See `get_config` for more details.
     :param logger: The logger. See `logging_utils.py` for more details.
     :param tokenizer: The tokenizer used to tokenize the inputs and outputs.
+    :param last_checkpoint: The path to the last checkpoint. If specified, the model will be loaded from the last
     :return: A T5 model for conditional generation.
     """
 
@@ -52,6 +54,8 @@ def get_model(
         constants.ModelImplementation.DEPTH.value: t5_model.DepthForConditionalGeneration,
     }[args.model.model_implementation]
 
+    logger.log_message(f'config is:\n{config}')
+
     # Randomly initialize the model
     if args.model.random_init:
         logger.log_message('Randomly initializing model')
@@ -61,18 +65,25 @@ def get_model(
     else:
 
         # If the model is DEPTH, load a T5 model from HuggingFace, and then load the weights into DEPTH
-        if (
-                args.model.model_implementation == constants.ModelImplementation.DEPTH.value or
-                args.model.model_implementation == constants.ModelImplementation.LOCAL_T5.value
-        ):
+        if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
             logger.log_message(f'Loading model from pretrained: {args.model.name}')
             base_model = transformers.T5ForConditionalGeneration.from_pretrained(
                 args.model.name,
                 config=config,
+                ignore_mismatched_sizes=True,
             )
             weights = base_model.state_dict()
             model = model_implementation(config)
             model.load_state_dict(weights)
+
+        # Load the model from a local checkpoint
+        elif last_checkpoint is not None:
+            logger.log_message(f'Loading model from checkpoint: {last_checkpoint}')
+            model = model_implementation.from_pretrained(
+                last_checkpoint,
+                config=config,
+                ignore_mismatched_sizes=True,
+            )
 
         # If the model is T5, load a T5 model from HuggingFace
         else:
@@ -87,7 +98,7 @@ def get_model(
         logger.log_message(
             f'Resizing model embeddings (from {model.config.vocab_size}) to match tokenizer vocabulary size: '
             f'{len(tokenizer)}')
-        model.resize_token_embeddings(len(tokenizer))
+        model.resize_token_embeddings(len(tokenizer), pad_to_multiple_of=8)
     else:
         logger.log_message(f'Model embeddings match tokenizer vocabulary size: {len(tokenizer)}')
 
@@ -102,29 +113,36 @@ def get_model(
 def get_config(
         args: omegaconf.DictConfig,
         logger: Logger,
+        last_checkpoint: typing.Optional[str] = None,
 ) -> transformers.PretrainedConfig:
     """
     Get the model configuration, which is used to initialize the model.
 
     :param args: The omegaconf configuration used to generate the model's configuration.
     :param logger: The logger. See `logging_utils.py` for more details.
+    :param last_checkpoint: The path to the last checkpoint. If specified, the model configuration will be loaded from
+        the last checkpoint.
     :return: The model configuration.
     """
     logger.log_message('Loading model config')
 
     config = transformers.AutoConfig.from_pretrained(
-        args.model.name,
+        pretrained_model_name_or_path=args.model.name if last_checkpoint is None else last_checkpoint,
     )
 
     if hasattr(args.model, 'overwrite'):
         for k, v in args.model.overwrite.items():
-            assert hasattr(config, k), f'config does not have attribute {k}'
-            setattr(config, k, v)
+            if hasattr(config, k):
+                setattr(config, k, v)
+            else:
+                logger.log_message(f'config does not have attribute {k}')
 
     if hasattr(args.model, 'add_config'):
         for k, v in args.model.add_config.items():
-            assert not hasattr(config, k), f'config already has attribute {k}'
-            setattr(config, k, v)
+            if hasattr(config, k):
+                logger.log_message(f'config already has attribute {k}')
+            else:
+                setattr(config, k, v)
 
     return config
 
@@ -168,9 +186,8 @@ def load_dataset_splits(
     :param logger: A logging_utils.Logger object. See `logging_utils.py` for more details.
     :return: A dictionary of the dataset splits.
     """
-    logger.log_message(f'Loading dataset {args.dataset.name} from {args.dataset.path}')
-
     if args.mode == constants.TrainingPhase.PT.value:
+        logger.log_message(f'Loading dataset {args.dataset.name} from {args.dataset.path}')
 
         # TODO: Enable loading multiple datasets and interweaving them.
         dataset = datasets.load_dataset(
@@ -212,15 +229,18 @@ def load_dataset_splits(
 
     # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
     elif args.mode == constants.TrainingPhase.FT.value:
-        benchmark_name = args.data.benchmark_constants
-        dataset_name = args.data.benchmark_dataset
-        if benchmark_name == 'glue':
+        logger.log_message(
+            f'Loading dataset {args.downstream.benchmark_dataset} from {args.downstream.benchmark_constants}'
+        )
+        benchmark_name = args.downstream.benchmark_constants
+        dataset_name = args.downstream.benchmark_dataset
+        if benchmark_name == constants.DownstreamDataset.GLUE.value:
             dataset = datasets.load_dataset(
                 benchmark_name,
                 dataset_name,
                 streaming=args.dataset.streaming,
             )
-        elif benchmark_name == 'OfekGlick/DiscoEval':
+        elif benchmark_name == constants.DownstreamDataset.DISCO_EVAL.value:
             dataset = datasets.load_dataset(
                 benchmark_name,
                 dataset_name,
@@ -229,10 +249,10 @@ def load_dataset_splits(
             raise NotImplementedError(f'Unknown benchmark name: {benchmark_name}')
 
         # TODO: Use constants instead of literal string
-        if benchmark_name == 'glue':
-            if dataset_name == 'mnli':
-                training_set = dataset['train']
-                if args.data.mnli_sub_dir == 'mismatched':
+        if benchmark_name == constants.DownstreamDataset.GLUE.value:
+            if dataset_name == constants.GLUEConstants.MNLI:
+                training_set = dataset[constants.DatasetSplit.TRAIN.value]
+                if args.downstream.mnli_sub_dir == constants.GLUEConstants.MISMATCHED:
                     validation_set = dataset['validation_mismatched']
                     test_set = dataset['test_mismatched']
                 else:
@@ -283,56 +303,99 @@ def process_dataset(
             # TODO: Pass in the name of the text column in the dataset. It may not always be 'text'
             if args.dataset.merge_examples:
                 logger.log_message('Tokenizing for T5 with merging examples')
-                dataset_split = dataset_split.map(
-                    data_utils.tokenize_function,
-                    batched=True,
-                    fn_kwargs={
-                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
-                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
-                    },
-                    remove_columns=[args.dataset.text_column]
-                )
+                if args.dataset.streaming:
+                    dataset_split = dataset_split.map(
+                        data_utils.tokenize_function,
+                        batched=True,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                    )
+                else:
+                    dataset_split = dataset_split.map(
+                        data_utils.tokenize_function,
+                        batched=True,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                        num_proc=args.data.num_workers,
+                        desc=f'Tokenizing {split}',
+                    )
 
             # TODO: Add support for DEPTH tokenizer
             elif args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
                 logger.log_message('Tokenizing for DEPTH without merging examples')
-                dataset_split = dataset_split.map(
-                    data_utils.tokenizer_function_depth_pre_training,
-                    batched=True,
-                    fn_kwargs={
-                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
-                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
-                    },
-                    remove_columns=[args.dataset.text_column],
-                )
+
+                if args.dataset.streaming:
+                    dataset_split = dataset_split.map(
+                        data_utils.tokenizer_function_depth_pre_training,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                    )
+                else:
+                    dataset_split = dataset_split.map(
+                        data_utils.tokenizer_function_depth_pre_training,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                        num_proc=args.data.num_workers,
+                        desc=f'Tokenizing {split}',
+                    )
 
             # Each example corresponds with an input of the language model
             else:
                 logger.log_message('Tokenizing for T5 without merging examples')
-                dataset_split = dataset_split.map(
-                    function=data_utils.tokenizer_function_t5_pre_training,
-                    batched=True,
-                    fn_kwargs={
-                        constants.T5TokenizerConstants.TOKENIZER: tokenizer,
-                        constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
-                    },
-                    remove_columns=[args.dataset.text_column],
-                )
-                # logger.log_message(f'mapped dataset: {dataset_split}')
+                if args.dataset.streaming:
+                    dataset_split = dataset_split.map(
+                        function=data_utils.tokenizer_function_t5_pre_training,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                    )
+                else:
+                    dataset_split = dataset_split.map(
+                        function=data_utils.tokenizer_function_t5_pre_training,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        fn_kwargs={
+                            constants.T5TokenizerConstants.TOKENIZER: tokenizer,
+                            constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
+                        },
+                        remove_columns=[args.dataset.text_column],
+                        num_proc=args.data.num_workers,
+                        desc=f'Tokenizing {split}',
+                    )
 
+            # Shuffle the dataset
             dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
             final_datasets[split] = dataset_split
 
     elif args.mode == constants.TrainingPhase.FT.value:
         logger.log_message('Pre-processing for fine-tuning')
-        ft_constants = GlueConstants() if args.data.benchmark_constants == 'glue' else DiscoEvalConstants()
+        ft_constants = GlueConstants() if args.downstream.benchmark_constants == 'glue' else DiscoEvalConstants()
         logger.log_message(f'Fine-tuning constants: {ft_constants}')
         # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
         final_datasets = {}
-        dataset_name = args.data.benchmark_dataset
+        dataset_name = args.downstream.benchmark_dataset
         for split, dataset_split in dataset_splits.items():
             logger.log_message('Tokenizing for T5 without merging examples')
-
             preprocessing_function = data_utils.create_preprocess_function(
                 dataset_info=ft_constants[dataset_name],
                 dataset_name=dataset_name,
@@ -359,14 +422,27 @@ def process_dataset(
                                  ] + [ft_constants[dataset_name].LABEL_COLUMN_NAME]
             else:
                 raise NotImplementedError(f'Unknown task config: {ft_constants[dataset_name]}')
-            dataset_split = dataset_split.map(
-                preprocessing_function,
-                batched=True,
-                remove_columns=remove_columns,
-            )
+
+            if args.dataset.streaming:
+                dataset_split = dataset_split.map(
+                    preprocessing_function,
+                    batched=True,
+                    remove_columns=remove_columns,
+                )
+            else:
+                dataset_split = dataset_split.map(
+                    preprocessing_function,
+                    batched=True,
+                    remove_columns=remove_columns,
+                    num_proc=args.data.num_workers,
+                    desc=f'Tokenizing {split}',
+                )
             # This is nessesary, in glue, the test set should not be shuffled.
-            if args.data.benchmark_constants == 'glue' and not split == constants.DatasetSplit.TEST.value:
-                dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+            if args.downstream.benchmark_constants == 'glue' and not split == constants.DatasetSplit.TEST.value:
+                if args.dataset.streaming:
+                    dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+                else:
+                    dataset_split = dataset_split.shuffle(seed=args.seed)
             final_datasets[split] = dataset_split
 
     else:
@@ -421,10 +497,20 @@ def get_data_collator(
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')
 
     elif args.mode == constants.TrainingPhase.FT.value:
-        data_collator = transformers.DataCollatorForSeq2Seq(
-            tokenizer=tokenizer,
-            label_pad_token_id=tokenizer.pad_token_id,
-        )
+        logger.log_message('Using HuggingFace data collator')
+        if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
+            data_collator = data_collator_utils.DEPTHDataCollatorFineTuning(
+                tokenizer=tokenizer,
+                input_length=args.data.input_length,
+                target_length=args.data.target_length,
+                pad_token_id=tokenizer.pad_token_id,
+                decoder_start_token_id=tokenizer.pad_token_id,
+            )
+        else:
+            data_collator = transformers.DataCollatorForSeq2Seq(
+                tokenizer=tokenizer,
+                label_pad_token_id=tokenizer.pad_token_id,
+            )
 
     else:
         raise NotImplementedError(f'Unknown mode: {args.mode}')

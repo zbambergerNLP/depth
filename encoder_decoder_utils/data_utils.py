@@ -1,5 +1,6 @@
-import typing
+from __future__ import annotations
 
+import typing
 from transformers import BatchEncoding
 
 # TODO: Add the following imports to the top of the file in order to allow fine-tuning in addition to pre-training.
@@ -10,14 +11,13 @@ from fine_tune_constants import glue_constants, disco_eval_constants
 disco_eval_constants_instance = disco_eval_constants.DiscoEvalConstants()
 from fine_tune_constants.glue_constants import GlueConstants
 import numpy as np
-from typing import Dict, List, Callable, Any
+from typing import Dict, Callable, Any
 import transformers
 from encoder_decoder_utils.constants import (
     TokenizerConstants,
     T5TokenizerConstants
 )
-from encoder_decoder_utils import tokenizer_utils
-import encoder_decoder_utils.logging_utils as logging_utils
+from encoder_decoder_utils import tokenizer_utils, constants
 
 
 def tokenize_function(
@@ -84,7 +84,7 @@ def tokenizer_function_t5_pre_training(
     batch_encoding = tokenizer(
         text=examples[text_column_name],
         max_length=in_length,
-        padding='max_length',
+        padding=constants.PaddingConstants.MAX_LENGTH.value,
         truncation=True,
     )
     input_ids = batch_encoding[TokenizerConstants.INPUT_IDS]
@@ -112,7 +112,7 @@ def tokenizer_function_depth_pre_training(
     batch_encoding = tokenizer(
         text=examples[text_column_name],
         max_length=in_length,
-        padding=True,
+        padding=constants.PaddingConstants.MAX_LENGTH.value,
         truncation=True,
     )
     result = transformers.BatchEncoding(
@@ -121,7 +121,6 @@ def tokenizer_function_depth_pre_training(
             TokenizerConstants.TOKEN_TYPE_IDS: np.array(batch_encoding[TokenizerConstants.TOKEN_TYPE_IDS]),
         }
     )
-
     return result
 
 
@@ -133,7 +132,6 @@ def preprocess_function_n_inputs(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger: logging_utils.Logger = None,
 ) -> transformers.BatchEncoding:
     """
     Pre-processes batches of examples with two textual inputs for an encoder-decoder model.
@@ -141,41 +139,71 @@ def preprocess_function_n_inputs(
     Args:
         examples: A batch in the form of a dictionary mapping, mapping column names to their respective values.
         label_names: A dictionary mapping from the integer representation of the label to the string representation.
-        task_name: The name of the task (i.e. SPArxib/RST/etc.).
+        task_name: The name of the task (i.e. Arxiv/RST/etc.).
         in_length: The maximum length of the input sequence.
         out_length: The maximum length of the output sequence.
         label_column_name: Name of the column within the input dictionary that contains the labels text.
         tokenizer: A function which converts string tokens into input_ids and other model inputs.
-        logger: A logger object which can be used to log messages.
     Returns:
         A dictionary containing the original mappings, as well as mappings to processed inputs and outputs.
+
+        When using a T5 model, the dictionary will contain
+        - input_ids: The input IDs of the model.
+        - labels: The labels of the model.
+
+        When using a DepthTokenizer model, the dictionary will contain
+        - input_ids: The input IDs of the model.
+        - token_type_ids: The token type IDs of the input IDs (corresponding to the sentence of each token in the
+            input).
+        - labels: The labels of the model. Note that we do not need to create token type IDs for the labels, as the
+            model will not use them (we want the model to predict exactly the targets from the dataset, without any
+            additional interventions).
     """
 
     outputs = [label_names[str(example)] for example in examples[label_column_name]]
     examples.pop(label_column_name)
     examples_values = dict(examples).values()  # takes the values for each text column of the dataset
     transposed_values = list(zip(*examples_values))  # transposes a matrix (list of lists)
-    inputs = [[f"{disco_eval_constants_instance.TEXT_COLUMN_NAMES[i]}: {sent}" for i, sent in enumerate(exmple)] for
-              exmple in transposed_values]
+    inputs = [[f"{disco_eval_constants_instance.TEXT_COLUMN_NAMES[i]}: {sent}" for i, sent in enumerate(example)] for
+              example in transposed_values]
     inputs = ["\t".join(exmple) for exmple in inputs]
     inputs = [f"{task_name}: {exmple}" for exmple in inputs]
-    encoding = tokenizer(
-        inputs,
-        padding='max_length',
-        max_length=in_length,
-        truncation=True,
-    )
-    encoding = np.array(encoding.input_ids)
-    results = {TokenizerConstants.INPUT_IDS: encoding}
-    labels = tokenizer(
-        outputs,
-        padding='max_length',
-        max_length=out_length,
-        truncation=True,
-    )[T5TokenizerConstants.INPUT_IDS]
-    labels = np.array(labels)
-    labels[labels == tokenizer.pad_token_id] = -100
-    results[T5TokenizerConstants.LABELS] = labels
+
+    results = {}
+    if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        input_encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+        )
+        results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(input_encoding.token_type_ids)
+        results[TokenizerConstants.INPUT_IDS] = np.array(input_encoding.input_ids)
+        label_encoding = tokenizer.batch_encode_plus(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+        )[TokenizerConstants.INPUT_IDS]
+        label_ids = np.array(label_encoding)
+    else:
+        input_encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+        )
+        results[TokenizerConstants.INPUT_IDS] = np.array(input_encoding.input_ids)
+        label_encoding = tokenizer(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+        )
+        label_ids = np.array(label_encoding.input_ids)
+    results[T5TokenizerConstants.LABELS] = label_ids
+    label_ids[label_ids == tokenizer.pad_token_id] = -100
+    results[T5TokenizerConstants.LABELS] = label_ids
     results = transformers.BatchEncoding(results)
     return results
 
@@ -189,7 +217,6 @@ def preprocess_function_one_input(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger: logging_utils.Logger = None,
 ) -> BatchEncoding:
     """
     Pre-processes batches of examples with only a single textual input for an encoder-decoder model.
@@ -202,27 +229,36 @@ def preprocess_function_one_input(
     :param in_length: The maximum length of the input sequence.
     :param out_length: The maximum length of the output sequence.
     :param tokenizer: A function which converts string tokens into input_ids and other model inputs.
-    :param logger: A logger object which can be used to log messages.
     :return: A dictionary containing the original mappings, as well as mappings to processed inputs and outputs.
     """
     inputs = [f"{prefix}{sentence}" for sentence in examples[text_column_name]]
     encoding = tokenizer(
         inputs,
-        padding='max_length',
+        padding=constants.PaddingConstants.MAX_LENGTH.value,
         max_length=in_length,
         truncation=True,
-        return_tensors='pt'
+        return_tensors=constants.ReturnTensor.PT.value,
     )
-    encoding = np.array(encoding.input_ids)
-    results = {TokenizerConstants.INPUT_IDS: encoding}
+    results = {TokenizerConstants.INPUT_IDS: np.array(encoding.input_ids)}
+    if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(encoding.token_type_ids)
     outputs = [label_names[example] for example in examples[label_column_name]]
-    labels = tokenizer(
-        outputs,
-        padding='max_length',
-        max_length=out_length,
-        truncation=True,
-        return_tensors='pt'
-    )[T5TokenizerConstants.INPUT_IDS]
+    if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        labels = tokenizer.batch_encode_plus(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+            return_tensors=constants.ReturnTensor.PT.value,
+        )[TokenizerConstants.INPUT_IDS]
+    else:
+        labels = tokenizer(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+            return_tensors=constants.ReturnTensor.PT.value,
+        )[T5TokenizerConstants.INPUT_IDS]
     labels[labels == tokenizer.pad_token_id] = -100
     results[T5TokenizerConstants.LABELS] = labels
     results = transformers.BatchEncoding(results)
@@ -241,7 +277,6 @@ def preprocess_function_two_inputs(
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
         is_regression: bool = False,
-        logger: logging_utils.Logger = None
 ) -> transformers.BatchEncoding:
     """
     Pre-processes batches of examples with two textual inputs for an encoder-decoder model.
@@ -257,7 +292,6 @@ def preprocess_function_two_inputs(
     :param in_length: The maximum length of the input sequence.
     :param out_length: The maximum length of the output sequence.
     :param tokenizer: A function which converts string tokens into input_ids and other model inputs.
-    :param logger: A logger object which can be used to log messages.
     :return: A dictionary containing the original mappings, as well as mappings to processed inputs and outputs.
     """
     inputs_1 = [f"{prefix_1}{sentence}" for sentence in examples[text_column_name_1]]
@@ -265,24 +299,35 @@ def preprocess_function_two_inputs(
     inputs = [f"{sent1} {sent2}" for sent1, sent2 in zip(inputs_1, inputs_2)]
     encoding = tokenizer(
         inputs,
-        padding='max_length',
+        padding=constants.PaddingConstants.MAX_LENGTH.value,
         max_length=in_length,
         truncation=True,
     )
-    encoding = np.array(encoding.input_ids)
-    results = {TokenizerConstants.INPUT_IDS: encoding}
+    results = {TokenizerConstants.INPUT_IDS: np.array(encoding.input_ids)}
+    if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(encoding.token_type_ids)
+
     if is_regression:  # Training task involves predicting continuous values
-        outputs = [str(round(example, 1)) for example in examples[label_column_name]]
+        outputs = [str(round(example / 0.2) * 0.2) for example in examples[label_column_name]]
     else:  # Training task involves predicting a label from a predefined set of possible labels.
         outputs = [label_names[example] for example in examples[label_column_name]]
 
     # Seq2seq models expect labels in the form of tokenized text (multi-class prediction).
-    labels = tokenizer(
-        outputs,
-        padding='max_length',
-        max_length=out_length,
-        truncation=True,
-    )[T5TokenizerConstants.INPUT_IDS]
+    if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        labels = tokenizer.batch_encode_plus(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+        )[TokenizerConstants.INPUT_IDS]
+
+    else:
+        labels = tokenizer(
+            outputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=out_length,
+            truncation=True,
+        )[T5TokenizerConstants.INPUT_IDS]
     labels = np.array(labels)
     labels[labels == tokenizer.pad_token_id] = -100
     results[T5TokenizerConstants.LABELS] = labels
@@ -298,7 +343,6 @@ def create_preprocess_function_one_input(
         in_length: int,
         out_length: int,
         tokenizer: transformers.PreTrainedTokenizer,
-        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     """
     Creates a pre-processing function for batches of examples with only a single textual input for an encoder-decoder
@@ -311,7 +355,6 @@ def create_preprocess_function_one_input(
     :param in_length: The maximum length of the input sequence.
     :param out_length: The maximum length of the output sequence.
     :param tokenizer: A function which converts string tokens into input_ids and other model inputs.
-    :param logger: A logger object which can be used to log messages.
     :return: A pre-processing function for batches of examples with only a single textual input for an encoder-decoder
         model.
     """
@@ -326,7 +369,6 @@ def create_preprocess_function_one_input(
             in_length=in_length,
             out_length=out_length,
             tokenizer=tokenizer,
-            logger=logger,
         )
 
     return preprocess_function
@@ -343,7 +385,6 @@ def create_preprocess_function_two_inputs(
         in_length: int,
         out_length: int,
         is_regression: bool = False,
-        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     """
     Creates a pre-processing function for batches of examples with two textual inputs for an encoder-decoder model.
@@ -358,7 +399,6 @@ def create_preprocess_function_two_inputs(
     :param in_length: The maximum length of the input sequence.
     :param out_length: The maximum length of the output sequence.
     :param tokenizer: A function which converts string tokens into input_ids and other model inputs.
-    :param logger: A logger object which can be used to log messages.
     :return: A pre-processing function for batches of examples with two textual inputs for an encoder-decoder model.
     """
 
@@ -375,7 +415,6 @@ def create_preprocess_function_two_inputs(
             in_length=in_length,
             out_length=out_length,
             is_regression=is_regression,
-            logger=logger,
         )
 
     return preprocess_function
@@ -388,7 +427,6 @@ def create_preprocess_function_n_inputs(
         tokenizer: transformers.PreTrainedTokenizer,
         in_length: int,
         out_length: int,
-        logger: logging_utils.Logger = None,
 ) -> Callable[[dict[str, Any]], BatchEncoding]:
     def preprocess_function(examples: typing.Dict[str, typing.Any]) -> BatchEncoding:
         return preprocess_function_n_inputs(
@@ -399,7 +437,6 @@ def create_preprocess_function_n_inputs(
             tokenizer=tokenizer,
             in_length=in_length,
             out_length=out_length,
-            logger=logger,
         )
 
     return preprocess_function
@@ -415,7 +452,7 @@ def create_preprocess_function(
         tokenizer: transformers.PreTrainedTokenizer,
         args: typing.Any,
         is_regression: bool = False,
-) -> Callable[[dict[str, Any]], dict[str, list[str]]] | Callable[[dict[str, Any]], BatchEncoding]:
+) -> typing.Callable[[dict[str, Any]], dict[str, list[str]]] | Callable[[dict[str, Any]], BatchEncoding]:
     """
     Create a function to pre-process the examples within the specified dataset.
 
@@ -429,6 +466,9 @@ def create_preprocess_function(
             and their corresponding names, the prefixes to prepend to textual inputs, and the names of the input and
             label text columns.
         dataset_name: The name of the dataset that is processed by this function.
+        logger: A logger object which can be used to log messages.
+        tokenizer: A function which converts string tokens into input_ids and other model inputs.
+        args: The arguments for the run. A hydra config which contains the model, data, and training arguments.
         is_regression: Whether the task is a regression task or not.
 
     Returns:
@@ -456,7 +496,6 @@ def create_preprocess_function(
                 in_length=in_length,
                 out_length=out_length,
                 text_column_name=dataset_info.TEXT_COLUMN_NAME,
-                logger=logger,
             )
         elif isinstance(dataset_info, glue_constants.TaskConfigTwoInput):
             return create_preprocess_function_two_inputs(
@@ -470,7 +509,6 @@ def create_preprocess_function(
                 in_length=in_length,
                 out_length=out_length,
                 is_regression=(is_regression or dataset_name == 'stsb'),
-                logger=logger,
             )
         else:
             raise RuntimeError(
@@ -486,5 +524,7 @@ def create_preprocess_function(
             out_length=out_length,
             label_column_name=label_column_name,
             tokenizer=tokenizer,
-            logger=logger,
         )
+
+    else:
+        raise RuntimeError(f"Unsupported dataset name: {dataset_name}.")

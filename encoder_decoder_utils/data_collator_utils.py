@@ -10,6 +10,8 @@ from encoder_decoder_utils import tokenizer_utils
 from encoder_decoder_utils.corruption import (
     corrupt_for_vanilla_t5,
     corrupt_for_depth,
+    create_depth_encoder_self_attention_mask,
+    shift_tokens_right
 )
 
 
@@ -243,3 +245,118 @@ class DEPTHDataCollator:
                 # ),
             }
         )
+
+@dataclass
+class DEPTHDataCollatorFineTuning:
+
+    def __init__(
+            self,
+            tokenizer: tokenizer_utils.DepthTokenizer,
+            input_length: int,
+            target_length: int,
+            pad_token_id: int,
+            decoder_start_token_id,
+            seed: int = 42,
+    ):
+        """Initializes the data collator.
+
+        Prepare the inputs and labels for fine-tuning a DEPTH pre-trained model on a downstream task.
+
+        :param tokenizer: The tokenizer used for encoding the textual data within examples.
+        :param input_length: The desired length of the input sequence (including special tokens). This value must be
+            positive.
+        :param target_length: The desired length of the target sequence (including special tokens). This value must be
+            positive.
+        :param pad_token_id: The id of the pad token for the model.
+        :param decoder_start_token_id: The id of the decoder start token for the model.
+        :param seed: A seed for the random number generator.
+       """
+        np.random.seed(seed)
+        self.tokenizer = tokenizer
+        self.input_length = input_length
+        self.target_length = target_length
+        self.pad_token_id = pad_token_id
+        self.decoder_start_token_id = decoder_start_token_id
+
+    def __call__(
+            self,
+            examples: typing.List[typing.Dict[str, np.ndarray]],
+    ) -> transformers.BatchEncoding:
+        """Generate a dictionary of input tensors to a Discourse T5 language model.
+
+        :param examples: A list of examples, each of which is a dictionary of the form
+            {
+                "input_ids": List[int],
+                "token_type_ids": List[int],
+                "labels": List[int],
+            }
+        :return: A BatchEncoding instance containing the following fields:
+            - "encoder_input_ids": The input ids of the model.
+            - "encoder_self_attention_mask": The self attention mask of the encoder.
+            - "cross_attention_mask": The cross attention mask of the decoder.
+            - "decoder_input_ids": The input ids of the decoder.
+            - "decoder_self_attention_mask": The self attention mask of the decoder.
+            - "labels": The labels for the decoder.
+        """
+        # Extract input_ids, labels, and token_type_ids from the examples
+        input_ids = np.stack([example["input_ids"] for example in examples])
+        labels = np.stack([example["labels"] for example in examples])
+        token_type_ids = np.stack([example["token_type_ids"] for example in examples])
+
+        # Create target ids
+        target_ids = torch.tensor(
+                shift_tokens_right(
+                input_ids=labels,
+                pad_token_id=self.pad_token_id,
+                decoder_start_token_id=self.decoder_start_token_id
+            )
+        )
+
+        # Create attention masks
+        encoder_attention_mask = torch.tensor(
+            create_depth_encoder_self_attention_mask(
+                input_ids=input_ids,
+                input_token_type_ids=token_type_ids,
+                tokenizer=self.tokenizer,
+                sentence_token_ids=self.tokenizer.get_sentence_token_and_eosen_ids()
+            )
+        )
+
+        # Convert input_ids and labels to tensors
+        input_ids = torch.tensor(input_ids)
+        labels = torch.tensor(labels)
+
+        # Decoder attention mask is autoregressive
+        decoder_attention_mask = torch.tril(
+            torch.ones(
+                (
+                    len(target_ids),
+                    self.target_length,
+                    self.target_length
+                 ),
+                dtype=torch.int8,
+            )
+        )
+
+        # Cross attention mask is all ones.
+        cross_attention_mask = torch.ones(
+            (
+                len(target_ids),
+                self.target_length,
+                self.input_length
+            ),
+            dtype=torch.int8,
+        )
+
+        # Convert to tensors and return
+        return transformers.BatchEncoding(
+            {
+                constants.DepthDataCollatorConstants.INPUT_IDS:input_ids,
+                constants.DepthDataCollatorConstants.LABELS: labels,
+                constants.DepthDataCollatorConstants.TARGET_IDS: target_ids,
+                constants.DepthDataCollatorConstants.ENCODER_ATTENTION_MASK: encoder_attention_mask,
+                constants.DepthDataCollatorConstants.DECODER_ATTENTION_MASK: decoder_attention_mask,
+                constants.DepthDataCollatorConstants.CROSS_ATTENTION_MASK: cross_attention_mask,
+            }
+        )
+

@@ -68,8 +68,6 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
             preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         )
         self.compute_discourse_metrics = compute_discourse_metrics
-        self.total_train_tokens = 0
-        self.total_validation_tokens = 0
 
     def get_train_dataloader(self):
         if self.train_dataset is None:
@@ -134,7 +132,6 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
                 pin_memory=self.args.dataloader_pin_memory,
                 drop_last=False,
                 num_workers=self.args.dataloader_num_workers,
-                # num_workers=8,  # The maximum number of workers on the eval set
             )
         )
 
@@ -245,7 +242,11 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
                     ignore_keys=ignore_keys,
                 )
                 # 1 if batch is shuffled, 0 otherwise
-                is_shuffled = inputs[constants.DepthDataCollatorConstants.IS_SHUFFLED].clone().detach().to(args.device)
+                is_shuffled = (
+                    inputs[constants.DepthDataCollatorConstants.IS_SHUFFLED].clone().detach().to(args.device) if
+                    constants.DepthDataCollatorConstants.IS_SHUFFLED in inputs else
+                    None
+                )
             else:  # Using a model other than Depth (e.g., T5)
                 loss, logits, labels = self.prediction_step(
                     model,
@@ -269,7 +270,9 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
                 losses = self.gather_function((loss.repeat(batch_size)))
                 losses_host = losses if losses_host is None else nested_concat(losses_host, losses, padding_index=-100)
             if sequence_losses is not None:
-                sequence_losses = self.accelerator.pad_across_processes(sequence_losses)
+                # Pad sequence_losses to the same length as the labels, and set the padding index to 0 (i.e., the
+                # padding tokens are not included in the loss).
+                sequence_losses = self.accelerator.pad_across_processes(sequence_losses, dim=1, pad_index=-100)
                 sequence_losses = self._nested_gather(sequence_losses)
                 sequence_losses_host = (
                     sequence_losses if sequence_losses_host is None else torch.cat(
@@ -315,7 +318,7 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
                     all_sequence_losses = (
                         sequence_losses
                         if all_sequence_losses is None
-                        else np.concatenate((all_sequence_losses, sequence_losses), axis=0)
+                        else nested_concat(all_sequence_losses, sequence_losses, padding_index=-100)
                     )
                 if preds_host is not None:
                     logits = nested_numpify(preds_host)
@@ -387,12 +390,21 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
         if num_samples == 0 and observed_num_examples > 0:
             num_samples = observed_num_examples
 
-        print(f'compute_discourse_metrics: {self.compute_discourse_metrics}')
-
         # Metrics!
         if self.compute_metrics is not None and all_preds is not None and all_labels is not None:
+            # TODO: Always compute non-discourse metrics, and then supplement with discourse metrics if available
+            # TODO: Ensure no overlap between non-discourse and discourse metrics (e.g., 'reconstruction_loss').
+            #  DEPTH-specific metrics should exist in discourse_metrics, and T5-specific metrics should exist in
+            #  metrics.
+            metrics = self.compute_metrics(
+                EvalPrediction(
+                    predictions=all_preds,
+                    label_ids=all_labels,
+                ),
+            )
+
             if self.compute_discourse_metrics is not None:
-                metrics = self.compute_discourse_metrics(
+                discourse_metrics = self.compute_discourse_metrics(
                     EvalPrediction(
                         predictions=all_preds,
                         label_ids=all_labels,
@@ -401,13 +413,10 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
                     self.tokenizer,
                     all_sequence_losses,
                 )
-            else:
-                metrics = self.compute_metrics(
-                    EvalPrediction(
-                        predictions=all_preds,
-                        label_ids=all_labels,
-                    ),
-                )
+                for key, value in discourse_metrics.items():
+                    if key not in metrics:
+                        metrics[key] = value
+
         else:
             metrics = {}
 
@@ -416,6 +425,16 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
 
         if all_losses is not None:
             metrics[f"{metric_key_prefix}_loss"] = all_losses.mean().item()
+
+            # Using T5
+            if all_sequence_losses is None:
+                # To compare T5 with DEPTH, we duplicate the loss under the name of the reconstruction loss we use for
+                # DEPTH. This allows for an apples-to-apples comparison of the loss.
+                metrics[f"{metric_key_prefix}_{constants.Metric.AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS.value}"] = (
+                    metrics[f"{metric_key_prefix}_loss"]
+                )
+
+
         if hasattr(self, "jit_compilation_time"):
             metrics[f"{metric_key_prefix}_jit_compilation_time"] = self.jit_compilation_time
 
@@ -446,6 +465,16 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
         :return: A tuple containing the loss, sequence_losses, logits and labels (each being optional).
         """
         inputs = self._prepare_inputs(inputs)
+
+        if self.args.predict_with_generate and not self.args.prediction_loss_only:
+            generated_tokens = self.model.generate(
+                inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                **gen_kwargs,
+            )
+            # in case the batch is shorter than max length, the output should be padded
+            if generated_tokens.shape[-1] < gen_kwargs["max_length"]:
+                generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_kwargs["max_length"])
 
         labels = nested_detach(inputs.get(constants.DepthDataCollatorConstants.LABELS, None))
 

@@ -22,11 +22,20 @@ class TrainingPhase(enum.Enum):
     FT = "ft"
     PT = "pt"
 
+class ReturnTensor(enum.Enum):
+    """Return tensor."""
+    PT = "pt"
+    NP = "np"
 
 class NumericalPrecision(enum.Enum):
     """Numerical precision."""
     FP32 = "fp32"
     BF16 = "bf16"
+
+class PaddingConstants(enum.Enum):
+    """Padding constants."""
+    MAX_LENGTH = "max_length"
+    LONGEST = "longest"
 
 
 class ModelImplementation(enum.Enum):
@@ -70,6 +79,7 @@ class Optimizer(enum.Enum):
 class Scheduler(enum.Enum):
     """Scheduler constants."""
     CONSTANT: str = 'constant'
+    CONSTANT_WITH_WARMUP: str = 'constant_with_warmup'
     COSINE: str = 'cosine'
     LEGACY: str = 'legacy'  # The legacy scheduler from the original T5 paper.
     LINEAR: str = 'linear'
@@ -120,6 +130,7 @@ class Metric(enum.Enum):
     VARIANCE_NON_PADDING_TOKENS_PER_EXAMPLE_LABEL: str = 'variance_non_padding_tokens_per_example_label'
     NUM_NON_PADDING_TOKENS_IN_BATCH_INPUT: str = 'num_non_padding_tokens_in_batch_input'
     NUM_NON_PADDING_TOKENS_IN_BATCH_LABEL: str = 'num_non_padding_tokens_in_batch_label'
+    NUM_SENTENCE_TOKENS: str = 'num_sentence_tokens'
 
     # Example-level metric names
     EXAMPLE_ACCURACY: str = 'example_accuracy'
@@ -147,6 +158,14 @@ class Metric(enum.Enum):
     VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'variance_loss_on_non_sentence_tokens'
     SENTENCE_ACCURACY: str = 'sentence_accuracy'
     RECONSTRUCTION_ACCURACY: str = 'reconstruction_accuracy'
+
+
+class DownstreamDataset(enum.Enum):
+    """Downstream datasets."""
+    GLUE: str = 'glue'
+    SUPERGLUE: str = 'superglue'
+    SQUAD: str = 'squad'
+    DISCO_EVAL: str = 'OfekGlick/DiscoEval'
 
 
 @dataclasses.dataclass
@@ -263,6 +282,28 @@ class OptimizerConstants:
 @dataclasses.dataclass(frozen=True)
 class SchedulerConstants:
     NO_DECAY: typing.Tuple[str] = ("bias", "LayerNorm", "layernorm", "layer_norm", "ln")
+
+@dataclasses.dataclass(frozen=True)
+class GLUEConstants:
+    ID = 'id'
+    LABEL = 'label'
+
+
+    # Dataset names
+    COLA: str = 'cola'
+    MNLI: str = 'mnli'
+    MRPC: str = 'mrpc'
+    QNLI: str = 'qnli'
+    QQP: str = 'qqp'
+    RTE: str = 'rte'
+    SST2: str = 'sst2'
+    STS_B: str = 'stsb'
+    WNLI: str = 'wnli'
+    AX: str = 'ax'
+
+    # Types of MNLI datasets
+    MATCHED: str = 'matched'
+    MISMATCHED: str = 'mismatched'
 
 @dataclasses.dataclass(frozen=True)
 class UnitTestConstants:

@@ -54,9 +54,6 @@ model:
     # If true, the model will be trained with mixed precision. Otherwise, it will be trained with FP32.
     is_bf16: true
 
-  # The path to the checkpoint to load. If empty, the model will retrieve the checkpoint from HuggingFace
-  checkpoint_path: ''
-
   # If true, the model will be randomly initialized. Otherwise, it will be initialized from the checkpoint
   random_init: false
 
@@ -129,12 +126,21 @@ data:
   # batches will have their examples' sentences shuffled.
   sentence_shuffling_probability: 0.5
 
+# TODO: Incorporate the 'downstream' section into the 'datasets' section
+downstream:
+
+  # The name of the benchmark to use. Options are 'glue', 'squad', etc...
   benchmark_constants: 'glue'
 
+  # The name of the benchmark dataset to use. For example, if using the GLUE benchmark, we may want to specify the 'sst2'
+  # dataset to only use the SST-2 dataset.
   benchmark_dataset: 'sst2'
 
+  # MNLI is a special case where the dataset is split into 'matched' and 'mismatched' partitions. This flag specifies
+  # which partition to use.
   mnli_sub_dir: 'mismatched'
 
+  # The directory to save the model's predictions in the downstream task.
   test_results_save_dir: 'test_results/'
 
 optim:
@@ -156,12 +162,10 @@ optim:
   # processed.
   batch_size: 128
 
-  auto_find_batch_size: true
+  # The total number of steps to train for. If this value is > 0, it will overwrite the 'epochs' value.
+  total_steps: -1
 
-  # The total number of steps to train for.
-  total_steps: 65_536
-
-  # The number of epochs to train for. If this value is > 0, it will overwrite the 'total_steps' value.
+  # The number of epochs to train for.
   epochs: -1
 
   # The number of warmup steps to use for the optimizer.
@@ -184,6 +188,12 @@ optim:
   # TODO: Describe this flag
   final_cosine: 1e-5
 
+generation:
+
+  max_length: 20
+  num_beams: 4
+  penalty_alpha: 0.6
+
 evaluate:
   # The number of steps to wait between evaluations.
   every_steps: 10_000
@@ -192,22 +202,35 @@ evaluate:
   steps: 500
 
 checkpoint:
+
+  # The path to the checkpoint to load. If empty, the model will retrieve the checkpoint from HuggingFace
+  checkpoint_path: ''
+
+  # Whether to resume an existing experiment from the provided checkpoint. If False, we start a new experiment with
+  # a new dedicated directory. If True, we resume the experiment from the provided checkpoint, and save to the existing
+  # directory.
+  resume: false
+
   # The number of steps to wait between checkpoints.
   every_steps: 10_000
 
   # The directory to save checkpoints to.
   output_dir: 'checkpoints/'
 
+  # The number of checkpoints to save.
+  save_total_limit: 1
+
+# TODO: Tensorboard, Comet, MLFlow, etc...
 logging:
 
   # The number of steps to wait between logging.
   every_steps: 100
 
-  # TODO: Describe this flag
-  grad_l2: true
+  # Log the l2 norm of the gradients during training.
+  grad_l2: false
 
-  # TODO: Describe this flag
-  weights_l2: true
+    # Log the l2 norm of the weights during training.
+  weights_l2: false
 
   # Weight and Biases
   wandb: false
@@ -219,7 +242,6 @@ logging:
   neptune_creds:
     project: 'principled-pre-training'
 
-  # TODO: Tensorboard, Comet, MLFlow, etc...
 
 # TODO: Investigate whether using these flags makes training faster
 deepspeed:

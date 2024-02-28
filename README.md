@@ -208,6 +208,20 @@ The script (both in the form of `sbatch` and in the form of `srun`) contains sev
 
 - `num_gpus=4`, `num_cpus=32`, `data.num_workers=32`: These are arguments passed to the `pre_train_encoder_decoder.py` script. They specify the number of GPUs and CPUs to use for training, and the number of worker processes for data loading, respectively.
 
+### File Structure:
+
+* The `encoder_decoder_utils` package (under the root directory) contains the main code for the DEPTH model. This includes the model architecture, the data processing pipeline, and the training loop.
+* The `hydra_configs` directory contains the configuration files for the DEPTH model. These files are written in the Hydra configuration language, and they specify the hyperparameters and settings for the model, the data, and the training process.
+* The `pre_train_encoder_decoder.py` script is the main entry point for training the DEPTH model. It uses the Hydra configuration files to set up the model, the data, and the training process, and it runs the training loop, and potentially evaluation and prediction loops. It supports both pre-training and fine-tuning modes.
+* The `run_configs` directory contains the SLURM job scripts for running DEPTH and T5 models on a SLURM cluster.
+  * At the top level (`depth/run_configs`), you will find scripts for pre-training T5 and DEPTH. There are also designated sub-directories dedicated to fine-tuning the resulting pre-trained models on downstream tasks (e.g., `.../depth/run_configs/glue/sst2/run_fine_tuning_t5_sst2.sh`).
+* `checkpoint` directory contains the pre-trained checkpoints for DEPTH and T5 models.
+  * Checkpoints are saved into either `depth` or `hf_t5` sub-directories, depending on the model implementation used.
+  * Within these sub-directories, you will find either `from_scratch` or `from_pretrained` sub-directories, depending whether pre-training was done from scratch, or from a pre-trained (HuggingFace) checkpoint.
+  * Among the `from_scratch` and `from_pretrained` sub-directories, you will find sub-directories corresponding to learning rate, and under those, you will find sub-directories corresponding to batch size. 
+  * Under the `batch_size` sub-directories, you will find sub-directories unique to the runtime of the script.
+  * Finally, under the runtime sub-directories, you will find the actual checkpoints, saved as `checkpoint-<step>` directories.
+
 ### Extending the Script
 
 To extend the script, you can add or modify the arguments passed to the `pre_train_encoder_decoder.py` script. For example, if you want to change the number of training steps, you can add the `optim.total_steps` argument:

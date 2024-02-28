@@ -1,2 +1,6 @@
 /.venv/
 pmi
+checkpoints
+encoder_decoder_utils/.pytest_cache
+run_configs
+download_dataset.py

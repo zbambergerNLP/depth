@@ -150,10 +150,21 @@ class DepthTokenizer(T5TokenizerFast):
             for entry in text:
                 ids = get_input_ids(entry)
                 input_ids.append(ids)
-                # seed += 1
 
-        if max_length is None:
-            max_length = max([len(ids) for ids in input_ids])
+        max_seq_len = max([len(ids) for ids in input_ids])
+
+        if max_length is None or (
+                # padding strategy is active, and not max_length
+                (padding == 'longest' or (isinstance(padding, bool) and padding))
+                and
+                # The maximum sequence length is shorter than the maximum length
+                max_seq_len < max_length
+        ):
+            # max_length = max([len(ids) for ids in input_ids])
+            raise NotImplementedError(
+                "DEPTH does not yet support dynamic padding. Implementing dynamic padding involves modifying the "
+                "tokenizer, data collator, and trainer so that they can handle variable length sequences."
+            )
 
         batch_outputs = {}
 
@@ -371,15 +382,6 @@ class DepthTokenizer(T5TokenizerFast):
             encoded_inputs[DEPTHTokenizerConstants.SPECIAL_TOKENS_MASK] = (
                 self.get_special_tokens_mask(sequence, already_has_special_tokens=True))
 
-        # Check lengths
-        assert max_length is None or len(encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS]) <= max_length
-        if max_length is None and len(encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS]) > self.model_max_length:
-            logger.warning(
-                "Token indices sequence length is longer than the specified maximum sequence length "
-                "for this model ({} > {}). Running this sequence through the model will result in "
-                "indexing errors".format(len(sequence), self.model_max_length)
-            )
-
         # Padding
         user_specified_padding = (
             # User did not specify 'no padding'
@@ -438,6 +440,16 @@ class DepthTokenizer(T5TokenizerFast):
             # TODO: support returning token type IDs and special tokens mask even if the user does not specify the padding
             #  option.
 
+        # Check lengths
+        assert max_length is None or len(encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS]) <= max_length
+        if max_length is None and len(
+                encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS]) > self.model_max_length:
+            logger.warning(
+                "Token indices sequence length is longer than the specified maximum sequence length "
+                "for this model ({} > {}). Running this sequence through the model will result in "
+                "indexing errors".format(len(sequence), self.model_max_length)
+            )
+
         if return_length:
             encoded_inputs[DEPTHTokenizerConstants.INPUT_LENGTH] = len(
                 encoded_inputs[DEPTHTokenizerConstants.INPUT_IDS])
@@ -459,7 +471,7 @@ class DepthTokenizer(T5TokenizerFast):
                     else:
                         raise
             
-            if return_tensors == 'np' and not isinstance(value, np.ndarray):
+            elif return_tensors == 'np' and not isinstance(value, np.ndarray):
                 try:
                     batch_outputs[key] = np.array(value)
                 except ValueError:
@@ -476,4 +488,3 @@ class DepthTokenizer(T5TokenizerFast):
                         return_tensors
                     )
                 )
-
