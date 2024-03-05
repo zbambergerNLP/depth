@@ -420,6 +420,12 @@ class EncoderDecoderTrainer(transformers.Seq2SeqTrainer):
         else:
             metrics = {}
 
+        if all_is_shuffled is not None:
+            metrics.update({
+                "average_shuffling_prob": all_is_shuffled.mean().item(),
+                "variance_shuffling_prob": all_is_shuffled.var().item(),
+            })
+
         # To be JSON-serializable, we need to remove numpy types or zero-d tensors
         metrics = denumpify_detensorize(metrics)
 

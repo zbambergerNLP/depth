@@ -176,6 +176,7 @@ def preprocess_function_n_inputs(
             padding=constants.PaddingConstants.MAX_LENGTH.value,
             max_length=in_length,
             truncation=True,
+            randomize_sentence_token_ids=False,
         )
         results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(input_encoding.token_type_ids)
         results[TokenizerConstants.INPUT_IDS] = np.array(input_encoding.input_ids)
@@ -231,17 +232,30 @@ def preprocess_function_one_input(
     :param tokenizer: A function which converts string tokens into input_ids and other model inputs.
     :return: A dictionary containing the original mappings, as well as mappings to processed inputs and outputs.
     """
+    # Construct inputs for the model
     inputs = [f"{prefix}{sentence}" for sentence in examples[text_column_name]]
-    encoding = tokenizer(
-        inputs,
-        padding=constants.PaddingConstants.MAX_LENGTH.value,
-        max_length=in_length,
-        truncation=True,
-        return_tensors=constants.ReturnTensor.PT.value,
-    )
-    results = {TokenizerConstants.INPUT_IDS: np.array(encoding.input_ids)}
+    results = {}
     if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+            return_tensors=constants.ReturnTensor.PT.value,
+            randomize_sentence_token_ids=False,
+        )
         results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(encoding.token_type_ids)
+    else: # T5Tokenizer
+        encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+            return_tensors=constants.ReturnTensor.PT.value,
+        )
+    results[TokenizerConstants.INPUT_IDS] = np.array(encoding.input_ids)
+
+    # Construct targets for the model
     outputs = [label_names[example] for example in examples[label_column_name]]
     if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
         labels = tokenizer.batch_encode_plus(
@@ -297,16 +311,26 @@ def preprocess_function_two_inputs(
     inputs_1 = [f"{prefix_1}{sentence}" for sentence in examples[text_column_name_1]]
     inputs_2 = [f"{prefix_2}{sentence}" for sentence in examples[text_column_name_2]]
     inputs = [f"{sent1} {sent2}" for sent1, sent2 in zip(inputs_1, inputs_2)]
-    encoding = tokenizer(
-        inputs,
-        padding=constants.PaddingConstants.MAX_LENGTH.value,
-        max_length=in_length,
-        truncation=True,
-    )
-    results = {TokenizerConstants.INPUT_IDS: np.array(encoding.input_ids)}
+    results = {}
     if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
+        encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+            randomize_sentence_token_ids=False,
+        )
         results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(encoding.token_type_ids)
+    else:
+        encoding = tokenizer(
+            inputs,
+            padding=constants.PaddingConstants.MAX_LENGTH.value,
+            max_length=in_length,
+            truncation=True,
+        )
+    results[TokenizerConstants.INPUT_IDS] = np.array(encoding.input_ids)
 
+    # Construct targets for the model
     if is_regression:  # Training task involves predicting continuous values
         outputs = [str(round(example / 0.2) * 0.2) for example in examples[label_column_name]]
     else:  # Training task involves predicting a label from a predefined set of possible labels.

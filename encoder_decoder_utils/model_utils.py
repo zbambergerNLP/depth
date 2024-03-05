@@ -244,6 +244,7 @@ def load_dataset_splits(
             dataset = datasets.load_dataset(
                 benchmark_name,
                 dataset_name,
+                streaming=args.dataset.streaming,
             )
         else:
             raise NotImplementedError(f'Unknown benchmark name: {benchmark_name}')
@@ -425,20 +426,25 @@ def process_dataset(
 
             if args.dataset.streaming:
                 dataset_split = dataset_split.map(
-                    preprocessing_function,
+                    function=preprocessing_function,
                     batched=True,
+                    batch_size=args.optim.batch_size,
                     remove_columns=remove_columns,
                 )
             else:
                 dataset_split = dataset_split.map(
-                    preprocessing_function,
+                    function=preprocessing_function,
                     batched=True,
+                    batch_size=args.optim.batch_size,
                     remove_columns=remove_columns,
                     num_proc=args.data.num_workers,
                     desc=f'Tokenizing {split}',
                 )
             # This is nessesary, in glue, the test set should not be shuffled.
-            if args.downstream.benchmark_constants == 'glue' and not split == constants.DatasetSplit.TEST.value:
+            if (
+                    args.downstream.benchmark_constants == constants.DownstreamDataset.GLUE and
+                    not split == constants.DatasetSplit.TEST.value
+            ):
                 if args.dataset.streaming:
                     dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
                 else:
@@ -469,6 +475,9 @@ def get_data_collator(
     :param logger: The logger. See `logging_utils.py` for more details.
     :return: The data collator.
     """
+    input_length = args.data.input_length
+    target_length = args.data.target_length
+
     if args.mode == constants.TrainingPhase.PT.value:
         if args.data.data_collator == 'custom_t5':  # TODO: Make this a constant
             logger.log_message('Using custom T5 data collator')
@@ -476,22 +485,24 @@ def get_data_collator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
                 mean_noise_span_length=args.data.mean_noise_span_length,
-                input_length=args.data.input_length,
-                target_length=args.data.target_length,
+                input_length=input_length,
+                target_length=target_length,
                 pad_token_id=tokenizer.pad_token_id,
                 decoder_start_token_id=tokenizer.pad_token_id,
             )
+
         elif args.data.data_collator == constants.ModelImplementation.DEPTH.value:
             logger.log_message('Using custom DEPTH data collator')
             data_collator = data_collator_utils.DEPTHDataCollator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
                 mean_noise_span_length=args.data.mean_noise_span_length,
-                input_length=args.data.input_length,
+                input_length=input_length,
                 target_length=args.data.target_length,
-                pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=target_length,
                 decoder_start_token_id=tokenizer.pad_token_id,
-                sentence_shuffling_probability=args.data.sentence_shuffling_probability
+                sentence_shuffling_probability=args.data.sentence_shuffling_probability,
+                warmup_steps=args.optim.warmup_steps,
             )
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')

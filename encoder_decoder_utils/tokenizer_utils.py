@@ -1,5 +1,4 @@
 from transformers import T5TokenizerFast
-
 import logging
 import numpy as np
 from torch import TensorType
@@ -95,6 +94,7 @@ class DepthTokenizer(T5TokenizerFast):
             padding: Union[bool, str, PaddingStrategy] = False,
             truncation: Union[bool, str, TruncationStrategy] = None,
             max_length: Optional[int] = None,
+            randomize_sentence_token_ids: bool = True,
             stride: int = 0,
             is_split_into_words: bool = False,
             pad_to_multiple_of: Optional[int] = None,
@@ -115,6 +115,7 @@ class DepthTokenizer(T5TokenizerFast):
                     padding=padding,
                     truncation=truncation,
                     max_length=max_length,
+                    randomize=randomize_sentence_token_ids,
                 )
                 return self.convert_tokens_to_ids(tokenized_text)
             elif isinstance(text_to_tokenize, (list, tuple)) and len(text_to_tokenize) > 0 and isinstance(
@@ -219,6 +220,7 @@ class DepthTokenizer(T5TokenizerFast):
     def add_sentence_tokens_to_text(
             self,
             sentences: str,
+            randomize: bool = True,
     ) -> str:
         """Add SENT tokens in the beginning of each sentence.
 
@@ -226,12 +228,14 @@ class DepthTokenizer(T5TokenizerFast):
 
         :param sentences: A string composed of one or more sentences. Strings without punctuation or
             coherent sentence ends are considered as single sentences.
+        :param randomize: If True, randomize the order of the sentence token IDs.
         :return: A string where sentences are prefixed with SENT tokens.
         """
         segmented_sentences = nltk.tokenize.sent_tokenize(sentences)
         num_sentences = len(segmented_sentences)
         segment_sentence_tokens = np.copy(self.get_sentence_tokens())
-        np.random.shuffle(segment_sentence_tokens)
+        if randomize:
+            np.random.shuffle(segment_sentence_tokens)
 
         # TODO: Randomly merge sentences if the number of sentences is greater than max_num_sentences_in_text.
         #  This is to avoid having to truncate sentences.
@@ -250,6 +254,7 @@ class DepthTokenizer(T5TokenizerFast):
             padding: Union[bool, str, transformers.tokenization_utils.PaddingStrategy] = True,
             truncation: Union[bool, str, transformers.tokenization_utils.TruncationStrategy] = True,
             max_length: int = 512,
+            randomize: bool = True
     ) -> Union[List[str], List[List[str]]]:
         """Tokenize a potentially long text into a sequence of tokens. New sentences are prepended with designated
         sentence tokens.
@@ -272,6 +277,8 @@ class DepthTokenizer(T5TokenizerFast):
         :param max_length:  Controls the maximum length to use by one of the truncation/padding parameters. If left unset or
             set to None, this will use the predefined model maximum length if a maximum length is required by one of the
             truncation/padding parameters.
+        :param randomize: If True, randomize the order of the sentence token IDs in the text (i.e., the ID of the
+            sentence token prepended before each sentence of the input).
         :return: A list that consists of a sequence of string tokens (either words or sub-words). Includes a designated
             sentence representation token (SENT)).
         """
@@ -280,6 +287,7 @@ class DepthTokenizer(T5TokenizerFast):
         if isinstance(text, str):
             augmented_text = self.add_sentence_tokens_to_text(
                 sentences=text,
+                randomize=randomize,
             )
             return self.tokenize(
                 text=augmented_text,
@@ -292,6 +300,7 @@ class DepthTokenizer(T5TokenizerFast):
             for text_example in text:
                 augmented_text_example = self.add_sentence_tokens_to_text(
                     sentences=text_example,
+                    randomize=randomize,
                 )
                 tokenized_text.append(self.tokenize(
                     text=augmented_text_example,

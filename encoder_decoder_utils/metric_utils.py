@@ -50,20 +50,8 @@ def compute_metrics_depth(
     inputs: np.ndarray = eval_preds.inputs if eval_preds.inputs is not None else None
     metrics = {}
 
-    average_non_padding_tokens_per_example_input = np.not_equal(inputs, tokenizer.pad_token_id).sum(axis=1).mean()
-    # -100 is the ignore index within the labels. It is used to ignore padding tokens when computing the loss.
-    average_non_padding_tokens_per_example_label = np.not_equal(labels, -100).sum(
-        axis=1).mean()  # TODO: Use constant instead of magic number
-    num_non_padding_tokens_in_batch_input = np.not_equal(inputs, tokenizer.pad_token_id).sum(axis=1).sum()
-    num_non_padding_tokens_in_batch_label = np.not_equal(labels, tokenizer.pad_token_id).sum(axis=1).sum()
-
     # Sentence tokens include <sent_i> (where i is an integer) tokens as well as <eosen> tokens.
-    sentence_tokens = list(
-        filter(lambda token: f'<{constants.DEPTHTokenizerConstants.SENT}' in token, tokenizer.all_special_tokens))
-    sentence_tokens.append(constants.DEPTHTokenizerConstants.END_OF_SENTENCE_TOKEN)
-
-    sentence_token_ids = tokenizer.convert_tokens_to_ids(sentence_tokens)
-    sentence_token_ids = np.array(sentence_token_ids, dtype=np.int32)
+    sentence_token_ids = np.array(tokenizer.get_sentence_token_and_eosen_ids())
     is_sentence_token = np.isin(labels, sentence_token_ids)
 
     # Find average loss on each example, and then the average loss across examples in the batch
@@ -72,14 +60,12 @@ def compute_metrics_depth(
         np.logical_not(is_sentence_token),  # Mask out non-sentence tokens
     )
     average_loss_on_sentence_tokens = sentence_losses.mean()
-    variance_loss_on_sentence_tokens = sentence_losses.var()
     is_padding_token = np.equal(labels, -100)  # -100 is the ignore index within the labels  # TODO: Use constant instead of magic number
     non_sentence_losses = np.ma.masked_array(
         sequence_losses,
         np.logical_or(is_sentence_token, is_padding_token)  # Mask out sentence, padding, and eos tokens
     )
     average_loss_on_non_sentence_tokens = non_sentence_losses.mean()
-    variance_loss_on_non_sentence_tokens = non_sentence_losses.var()
 
     prediction_is_correct = np.equal(predictions, labels)
     sentence_accuracy = np.ma.masked_array(
@@ -92,22 +78,14 @@ def compute_metrics_depth(
         np.logical_or(is_sentence_token, is_padding_token)  # Mask out sentence and padding tokens
     ).mean()
 
-    sentence_tokens_per_example = np.mean(is_sentence_token, axis=1)
+    sentence_tokens_per_example = np.sum(is_sentence_token, axis=1).mean()
 
     metrics.update({
-        constants.Metric.AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT.value:
-            average_non_padding_tokens_per_example_input,
-        constants.Metric.AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_LABEL.value:
-            average_non_padding_tokens_per_example_label,
-        constants.Metric.NUM_NON_PADDING_TOKENS_IN_BATCH_INPUT.value: num_non_padding_tokens_in_batch_input,
-        constants.Metric.NUM_NON_PADDING_TOKENS_IN_BATCH_LABEL.value: num_non_padding_tokens_in_batch_label,
         constants.Metric.AVERAGE_LOSS_ON_SENTENCE_TOKENS.value: average_loss_on_sentence_tokens,
-        constants.Metric.VARIANCE_LOSS_ON_SENTENCE_TOKENS.value: variance_loss_on_sentence_tokens,
         constants.Metric.AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS.value: average_loss_on_non_sentence_tokens,
-        constants.Metric.VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS.value: variance_loss_on_non_sentence_tokens,
         constants.Metric.SENTENCE_ACCURACY.value: sentence_accuracy,
         constants.Metric.RECONSTRUCTION_ACCURACY.value: reconstruction_accuracy,
-        # constants.Metric.NUM_SENTENCE_TOKENS.value: sentence_tokens_per_example,
+        constants.Metric.NUM_SENTENCE_TOKENS.value: sentence_tokens_per_example,
     })
     return metrics
 
@@ -128,33 +106,35 @@ def compute_metrics(
     labels = eval_preds.label_ids
     input_ids = eval_preds.inputs
 
-    batch_size = predictions.shape[0]
-    target_length = predictions.shape[1]
-    sentinel_tokens = tokenizer.get_sentinel_token_ids()
-
-    average_non_padding_tokens_per_example_input = np.not_equal(
-        input_ids,
-        tokenizer.pad_token_id
-    ).mean()
-    average_non_padding_tokens_per_example_label = np.not_equal(
-        labels,
-        -100
-    ).mean()
-
-    input_id_sentinel_tokens = np.isin(input_ids, sentinel_tokens)
-    target_id_sentinel_tokens = np.isin(labels, sentinel_tokens)
     target_padding_tokens = np.equal(labels, -100)
+    prediction_is_correct = np.equal(predictions, labels)
+    sentinel_token_ids = np.array(tokenizer.get_sentinel_token_ids())
+
+    sentinel_tokens_in_labels = np.isin(labels, sentinel_token_ids)
+    padding_tokens_in_labels = np.equal(labels, tokenizer.pad_token_id)
+    non_padding_tokens_in_labels = np.not_equal(labels, tokenizer.pad_token_id)
+
+    # TODO: Determine the number of tokens in between consecutive sentinel tokens
 
     metrics = {
-        Metric.AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_INPUT.value: average_non_padding_tokens_per_example_input,
-        Metric.AVERAGE_NON_PADDING_TOKENS_PER_EXAMPLE_LABEL.value: average_non_padding_tokens_per_example_label,
+        Metric.NUM_SENTINEL_TOKENS_IN_LABELS.value: np.sum(sentinel_tokens_in_labels, axis=1).mean(),
+        Metric.PADDING_TOKENS_IN_LABELS.value: np.sum(padding_tokens_in_labels).mean(),
+        Metric.NON_PADDING_TOKENS_IN_LABELS.value: np.sum(non_padding_tokens_in_labels, axis=1).mean(),
     }
+
+    if input_ids is not None:
+        sentinel_tokens_in_inputs = np.isin(input_ids, sentinel_token_ids)
+        padding_tokens_in_inputs = np.equal(input_ids, tokenizer.pad_token_id)
+        non_padding_tokens_in_inputs = np.not_equal(input_ids, tokenizer.pad_token_id)
+        metrics.update({
+            Metric.NUM_SENTINEL_TOKENS_IN_INPUTS.value: np.sum(sentinel_tokens_in_inputs, axis=1).mean(),
+            Metric.PADDING_TOKENS_IN_INPUTS.value: np.sum(padding_tokens_in_inputs, axis=1).mean(),
+            Metric.NON_PADDING_TOKENS_IN_INPUTS.value: np.sum(non_padding_tokens_in_inputs, axis=1).mean(),
+        })
 
     if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
         sentence_token_ids = tokenizer.get_sentence_token_ids()
         target_id_sentence_tokens = np.isin(labels, sentence_token_ids)
-
-        prediction_is_correct = np.equal(predictions, labels)
         sentence_accuracy = np.ma.masked_array(
             prediction_is_correct,
             np.logical_not(target_id_sentence_tokens),  # Mask out non-sentence tokens
@@ -165,23 +145,13 @@ def compute_metrics(
             np.logical_or(target_id_sentence_tokens, target_padding_tokens)
         ).mean()
         metrics[Metric.SENTENCE_ACCURACY.value] = sentence_accuracy
-        metrics[Metric.RECONSTRUCTION_ACCURACY.value] = reconstruction_accuracy
-
-    # Flatten the predictions and labels from (batch_size, target_length) to (batch_size * target_length)
-    predictions = predictions.reshape([batch_size * target_length])
-    labels = labels.reshape([batch_size * target_length])
-
-    # TODO: Make sure accuracy does not account for padding tokens.
-    # flattened_target_padding_tokens = target_padding_tokens.reshape([batch_size * target_length])
-    # accuracy = evaluate.load(
-    #     "accuracy",
-    #     sample_weight=np.logical_not(flattened_target_padding_tokens, dtype=np.int8))
-    clf_metrics = evaluate.combine(
-        [
-            constants.Metric.ACCURACY.value,
-        ]
-    )
-    metrics.update(clf_metrics.compute(predictions=predictions, references=labels))
+    else:
+        reconstruction_accuracy = np.ma.masked_array(
+            np.equal(predictions, labels),
+            # Mask out padding tokens
+            target_padding_tokens
+        ).mean()
+    metrics[Metric.RECONSTRUCTION_ACCURACY.value] = reconstruction_accuracy
     return metrics
 
 
@@ -264,7 +234,11 @@ def compute_fine_tune_metrics(
         else:
             # In classification datasets (excluding STS-B), we remove the "unknown" label from the possible labels
             #  (the unknown label corresponds with the ID -1, whereas other labels start at 0).
-            possible_labels -= {ft_constants[dataset].LABELS[-1]}
+            try:
+                possible_labels -= {ft_constants[dataset].LABELS[-1]}
+            except KeyError:
+                pass
+
             if pred in label_to_id.keys():
                 predictions_converted.append(label_to_id[pred])
             else:

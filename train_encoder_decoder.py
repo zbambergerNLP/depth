@@ -265,7 +265,7 @@ def main(dict_config: omegaconf.DictConfig):
         remove_unused_columns=False,  # Data collator is responsible for removing unused columns.
 
         per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_train_batch_size * 2,  # Batch size can be larger for evaluation
+        per_device_eval_batch_size=per_device_train_batch_size * 4,  # Batch size can be larger for evaluation
         gradient_accumulation_steps=dict_config.optim.grad_acc,
         eval_accumulation_steps=dict_config.optim.grad_acc,
 
@@ -351,6 +351,8 @@ def main(dict_config: omegaconf.DictConfig):
                 return metric_utils.compute_fine_tune_metrics(
                     eval_preds=eval_preds,
                     metric=constants.Metric.ACCURACY.value,
+                    benchmark=dict_config.downstream.benchmark_constants,
+                    dataset=dict_config.downstream.benchmark_dataset,
                     tokenizer=tokenizer,
                     ft_constants=ft_constants,
                 )

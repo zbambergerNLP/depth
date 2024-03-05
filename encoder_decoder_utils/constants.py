@@ -156,6 +156,17 @@ class Metric(enum.Enum):
     VARIANCE_LOSS_ON_SENTENCE_TOKENS: str = 'variance_loss_on_sentence_tokens'
     AVERAGE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'average_loss_on_non_sentence_tokens'
     VARIANCE_LOSS_ON_NON_SENTENCE_TOKENS: str = 'variance_loss_on_non_sentence_tokens'
+
+    # Pre-Training metrics
+    NUM_SENTINEL_TOKENS_IN_LABELS: str = 'num_sentinel_tokens_in_labels'
+    NUM_SENTINEL_TOKENS_IN_INPUTS: str = 'num_sentinel_tokens_in_inputs'
+    PADDING_TOKENS_IN_LABELS: str = 'padding_tokens_in_labels'
+    PADDING_TOKENS_IN_INPUTS: str = 'padding_tokens_in_inputs'
+    NON_PADDING_TOKENS_IN_LABELS: str = 'non_padding_tokens_in_labels'
+    NON_PADDING_TOKENS_IN_INPUTS: str = 'non_padding_tokens_in_inputs'
+    SPAN_LENGTH: str = 'span_length'
+
+    # Pre-Training Accuracy
     SENTENCE_ACCURACY: str = 'sentence_accuracy'
     RECONSTRUCTION_ACCURACY: str = 'reconstruction_accuracy'
 

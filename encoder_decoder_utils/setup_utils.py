@@ -26,6 +26,7 @@ class Experiment:
             self,
             dict_config: omegaconf.DictConfig
     ):
+        self.output_dir = dict_config.checkpoint.output_dir
         self.training_phase = (
             "fine_tune" if dict_config.mode == constants.TrainingPhase.FT.value else "pre_train"
         )
@@ -44,7 +45,8 @@ class Experiment:
         self.hparams = self._get_hparams(
             dict_config.optim.base_lr,
             dict_config.optim.lr_scheduler,
-            dict_config.optim.batch_size
+            dict_config.optim.batch_size,
+            dict_config.data.sentence_shuffling_probability,
         )
         self.date_time = time.strftime("%Y-%m-%d_%H-%M")
         self.experiment_name = self._create_name()
@@ -78,22 +80,25 @@ class Experiment:
             learning_rate: float,
             scheduler: str,
             batch_size: int,
-    ):
+            shuffling_probability: float,
+    ) -> str:
         return '_'.join(
             [
                 f"lr_{str(learning_rate).replace('.', '_')}",
                 scheduler,
-                f"bsz_{str(batch_size)}"
+                f"bsz_{str(batch_size)}",
+                f"shuffle_p_{str(shuffling_probability).replace('.', '_')}"
             ]
         )
 
-    def _create_path(self):
+    def _create_path(self) -> str:
         """
         Get the path to the experiment folder.
         :return: The path to the experiment folder.
         """
         hparams = self.hparams
         return '/'.join([
+            self.output_dir,
             self.training_phase,
             str(self.checkpoint_origin),
             self.model_implementation,
@@ -102,7 +107,7 @@ class Experiment:
             self.date_time
         ])
 
-    def _create_name(self):
+    def _create_name(self) -> str:
         """
         Get the name of the experiment.
         :return: The name of the experiment.
@@ -118,11 +123,11 @@ class Experiment:
         ])
 
     @property
-    def path(self):
+    def path(self) -> str:
         return self.experiment_path
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.experiment_name
 
     def set_path(self, path: str):
