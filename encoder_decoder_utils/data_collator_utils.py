@@ -4,6 +4,8 @@ import torch
 import numpy as np
 from dataclasses import dataclass
 import datasets
+from transformers import TrainingArguments, TrainerState, TrainerControl
+
 from encoder_decoder_utils import constants
 
 from encoder_decoder_utils import tokenizer_utils
@@ -192,7 +194,8 @@ class DEPTHDataCollator:
             - "decoder_self_attention_mask": The self attention mask of the decoder.
             - "labels": The labels for the decoder.
         """
-        do_shuffle = np.random.uniform() < self.sentence_shuffling_probability
+        shuffle_probability = self.sentence_shuffling_probability
+        do_shuffle = np.random.uniform(0, 1) < shuffle_probability
 
         batch = corrupt_for_depth(
             examples=examples,
@@ -245,6 +248,7 @@ class DEPTHDataCollator:
                 # ),
             }
         )
+
 
 @dataclass
 class DEPTHDataCollatorFineTuning:
@@ -359,4 +363,3 @@ class DEPTHDataCollatorFineTuning:
                 constants.DepthDataCollatorConstants.CROSS_ATTENTION_MASK: cross_attention_mask,
             }
         )
-

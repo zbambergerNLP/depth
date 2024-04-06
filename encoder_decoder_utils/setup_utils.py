@@ -38,20 +38,26 @@ class Experiment:
             checkpoint_path=dict_config.checkpoint.checkpoint_path,
         )
         self.dataset = (
-            f"{dict_config.dataset.path}_{dict_config.dataset.name}" if
+            (
+                f"{dict_config.dataset.path.replace('/', ',')}_"
+                f"{dict_config.dataset.name.replace('/', ',')}"
+            ) if
             dict_config.mode == constants.TrainingPhase.PT.value else
-            f"{dict_config.downstream.benchmark_constants}_{dict_config.downstream.benchmark_dataset}"
+            (
+                f"{dict_config.downstream.benchmark_constants.replace('/', ',')}_"
+                f"{dict_config.downstream.benchmark_dataset.replace('/', ',')}"
+            )
         )
         self.hparams = self._get_hparams(
             dict_config.optim.base_lr,
             dict_config.optim.lr_scheduler,
             dict_config.optim.batch_size,
             dict_config.data.sentence_shuffling_probability,
+            fine_tune=(dict_config.mode == constants.TrainingPhase.FT.value),
         )
         self.date_time = time.strftime("%Y-%m-%d_%H-%M")
         self.experiment_name = self._create_name()
         self.experiment_path = self._create_path()
-
 
     @staticmethod
     def _get_checkpoint_origin(
@@ -60,6 +66,7 @@ class Experiment:
             model_implementation: str,
             checkpoint_path: str,
     ):
+        # TODO: If the checkpoint has explicit mention of a step, then include that step in the name.
         if (
                 checkpoint_path
         ):
@@ -74,22 +81,24 @@ class Experiment:
                 # If fine-tuning, we can determine the checkpoint origin from the random_init flag.
                 return "from_scratch" if random_init else "from_pretrained"
 
-
     @staticmethod
     def _get_hparams(
             learning_rate: float,
             scheduler: str,
             batch_size: int,
             shuffling_probability: float,
+            fine_tune: bool,
     ) -> str:
-        return '_'.join(
+        result = '_'.join(
             [
                 f"lr_{str(learning_rate).replace('.', '_')}",
                 scheduler,
                 f"bsz_{str(batch_size)}",
-                f"shuffle_p_{str(shuffling_probability).replace('.', '_')}"
             ]
         )
+        if not fine_tune:
+            result += f"_shuffle_p_{str(shuffling_probability).replace('.', '_')}"
+        return result
 
     def _create_path(self) -> str:
         """

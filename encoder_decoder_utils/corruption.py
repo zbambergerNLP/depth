@@ -483,6 +483,7 @@ def filter_target_ids_for_t5(
         A tensor of shape [batch_size, input_length] in which sentinel continuations are removed.
     """
     # TODO: Support target_length != input_length
+    # Shift the input IDs to the right by one by concatenating a 0 (pad) to the beginning of each example's input IDs.
     shifted_input_ids = np.concatenate(
         (
             np.zeros((input_ids.shape[0], 1), dtype=input_ids.dtype),
@@ -490,6 +491,8 @@ def filter_target_ids_for_t5(
         ),
         axis=1,
     )
+
+    # Shift the input IDs to the right by one by concatenating a 0 (pad) to the beginning of each example's input IDs.
     shifted_input_ids_sentinel = np.concatenate(
         (
             np.zeros((input_ids_sentinel.shape[0], 1), dtype=input_ids_sentinel.dtype),
@@ -499,6 +502,8 @@ def filter_target_ids_for_t5(
     )
 
     result = copy.deepcopy(input_ids_sentinel)
+
+    # Replace the input IDs with the shifted input IDs where the sentinel IDs are not 0.
     result = np.where(
         shifted_input_ids_sentinel != 0,
         shifted_input_ids,

@@ -108,6 +108,10 @@ def main(dict_config: omegaconf.DictConfig):
     :param dict_config: A dictionary containing the configuration parameters for the training script. See the
     `default.yaml` file in the `hydra_configs` directory for the default configuration parameters.
     """
+    # The below environment variable setting prevents `SSLError: HTTPSConnectionPool(host='huggingface.co', port=443)`
+    # See https://github.com/huggingface/transformers/issues/17611
+    os.environ['CURL_CA_BUNDLE'] = ''
+
     experiment = setup_utils.Experiment(dict_config=dict_config)
 
     # if checkpoint load_directory is specified, then resume training from that checkpoint.
@@ -233,7 +237,6 @@ def main(dict_config: omegaconf.DictConfig):
     lr_scheduler = optimizer_utils.get_lr_scheduler(optimizer=optimizer, args=dict_config, logger=logger)
     logger.log_message(f"Learning rate scheduler:\n{lr_scheduler}")
     optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
-
     # Each fine-tuning task has its own set of constants. We need to pass these constants to the compute_metrics
     # function in order to compute the fine-tuning metrics. We will use the GLUE constants for the GLUE benchmark
     # datasets, and the DiscoEval constants for the DiscoEval dataset.
@@ -289,7 +292,10 @@ def main(dict_config: omegaconf.DictConfig):
         include_inputs_for_metrics=True,
         length_column_name=constants.DEPTHTokenizerConstants.INPUT_LENGTH,
         logging_first_step=True,
+        include_num_input_tokens_seen=True,
 
+        # TODO: Incorporate evaluation/prediction with generation so that the code commented below works for both
+        #  pre-training and fine-tuning.
         # Evaluation/Prediction with generation
         # predict_with_generate=True if dict_config.mode == constants.TrainingPhase.FT.value else False,
         # generation_config=transformers.GenerationConfig(

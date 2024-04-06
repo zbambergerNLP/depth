@@ -67,14 +67,25 @@ def get_model(
         # If the model is DEPTH, load a T5 model from HuggingFace, and then load the weights into DEPTH
         if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
             logger.log_message(f'Loading model from pretrained: {args.model.name}')
-            base_model = transformers.T5ForConditionalGeneration.from_pretrained(
-                args.model.name,
-                config=config,
-                ignore_mismatched_sizes=True,
-            )
-            weights = base_model.state_dict()
-            model = model_implementation(config)
-            model.load_state_dict(weights)
+
+            if last_checkpoint is not None:
+                logger.log_message(f'Loading model from checkpoint: {last_checkpoint}')
+                model = t5_model.DepthForConditionalGeneration.from_pretrained(
+                    pretrained_model_name_or_path=last_checkpoint,
+                    config=config,
+                    ignore_mismatched_sizes=True,
+                )
+
+            else:
+                logger.log_message(f'Loading model from pretrained: {args.model.name}')
+                base_model = transformers.T5ForConditionalGeneration.from_pretrained(
+                    args.model.name,
+                    config=config,
+                    ignore_mismatched_sizes=True,
+                )
+                weights = base_model.state_dict()
+                model = model_implementation(config)
+                model.load_state_dict(weights)
 
         # Load the model from a local checkpoint
         elif last_checkpoint is not None:
@@ -85,7 +96,7 @@ def get_model(
                 ignore_mismatched_sizes=True,
             )
 
-        # If the model is T5, load a T5 model from HuggingFace
+        # If the model is from HuggingFace, load it from the hub by name.
         else:
             logger.log_message(f'Loading model from pretrained: {args.model.name}')
             model = model_implementation.from_pretrained(
@@ -502,7 +513,6 @@ def get_data_collator(
                 pad_token_id=target_length,
                 decoder_start_token_id=tokenizer.pad_token_id,
                 sentence_shuffling_probability=args.data.sentence_shuffling_probability,
-                warmup_steps=args.optim.warmup_steps,
             )
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')

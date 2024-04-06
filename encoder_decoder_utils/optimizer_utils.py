@@ -202,6 +202,7 @@ def get_lr_scheduler(
         )
 
     elif args.optim.lr_scheduler == Scheduler.LEGACY.value:
+        # TODO: Ensure legacy scheduler is customizable with respect to warmup steps, maximum learning rate, etc.
 
         msg = "You are using T5 legacy LR Schedule, it's independent from the optim.base_lr"
         logger.log_message(msg)
@@ -246,6 +247,11 @@ def get_lr_scheduler(
             optimizer,
             num_warmup_steps=args.optim.warmup_steps,
             num_training_steps=args.optim.total_steps,
+        )
+    elif args.optim.lr_scheduler == Scheduler.INVERSE_SQRT.value:
+        lr_scheduler = transformers.get_inverse_sqrt_schedule(
+            optimizer=optimizer,
+            num_warmup_steps=args.optim.warmup_steps,
         )
     else:
         raise NotImplementedError

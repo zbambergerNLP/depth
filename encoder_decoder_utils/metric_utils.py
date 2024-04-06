@@ -118,7 +118,7 @@ def compute_metrics(
 
     metrics = {
         Metric.NUM_SENTINEL_TOKENS_IN_LABELS.value: np.sum(sentinel_tokens_in_labels, axis=1).mean(),
-        Metric.PADDING_TOKENS_IN_LABELS.value: np.sum(padding_tokens_in_labels).mean(),
+        Metric.PADDING_TOKENS_IN_LABELS.value: np.sum(padding_tokens_in_labels, axis=1).mean(),
         Metric.NON_PADDING_TOKENS_IN_LABELS.value: np.sum(non_padding_tokens_in_labels, axis=1).mean(),
     }
 
@@ -164,6 +164,7 @@ def preprocess_logits_for_metrics(
         # like past_key_values, but logits always come first
         logits = logits[0]
     return logits.argmax(dim=-1)
+
 
 def compute_fine_tune_metrics(
         eval_preds: transformers.EvalPrediction,

@@ -83,6 +83,7 @@ class Scheduler(enum.Enum):
     COSINE: str = 'cosine'
     LEGACY: str = 'legacy'  # The legacy scheduler from the original T5 paper.
     LINEAR: str = 'linear'
+    INVERSE_SQRT: str = 'inverse_sqrt'
 
 
 class TagCategory(enum.Enum):
