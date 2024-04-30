@@ -296,7 +296,7 @@ class GlueConstants:
                 MetricConstants.RECALL,
             ],
             LABELS={
-                key: str(key) for key in np.arange(0, 5, 0.2)
+                key: str(key) for key in np.arange(0, 5.2, 0.2)
             }
         )
 

@@ -257,6 +257,16 @@ def load_dataset_splits(
                 dataset_name,
                 streaming=args.dataset.streaming,
             )
+        elif benchmark_name == "ni":
+            dataset = datasets.load_dataset(
+                './encoder_decoder_utils/ni_dataset.py',
+                data_dir='./data/splits/default',
+                task_dir='./data/tasks',
+                max_num_instances_per_task=100,
+                max_num_instances_per_eval_task=100
+            )
+            return dataset
+
         else:
             raise NotImplementedError(f'Unknown benchmark name: {benchmark_name}')
 
@@ -401,66 +411,69 @@ def process_dataset(
 
     elif args.mode == constants.TrainingPhase.FT.value:
         logger.log_message('Pre-processing for fine-tuning')
-        ft_constants = GlueConstants() if args.downstream.benchmark_constants == 'glue' else DiscoEvalConstants()
-        logger.log_message(f'Fine-tuning constants: {ft_constants}')
-        # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
-        final_datasets = {}
-        dataset_name = args.downstream.benchmark_dataset
-        for split, dataset_split in dataset_splits.items():
-            logger.log_message('Tokenizing for T5 without merging examples')
-            preprocessing_function = data_utils.create_preprocess_function(
-                dataset_info=ft_constants[dataset_name],
-                dataset_name=dataset_name,
-                tokenizer=tokenizer,
-                args=args,
-                logger=logger,
-            )
-            logger.log_message(f'preprocessing function: {preprocessing_function}')
-            if isinstance(ft_constants[dataset_name], TaskConfigOneInput):
-                remove_columns = [
-                    ft_constants[dataset_name].TEXT_COLUMN_NAME,
-                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
-                ] + ['idx']
-            elif isinstance(ft_constants[dataset_name], TaskConfigTwoInput):
-                remove_columns = [
-                    ft_constants[dataset_name].TEXT_COLUMN_NAME_1,
-                    ft_constants[dataset_name].TEXT_COLUMN_NAME_2,
-                    ft_constants[dataset_name].LABEL_COLUMN_NAME,
-                ] + ['idx']
-            elif isinstance(ft_constants[dataset_name], DiscoEvalTaskConfig):
-                remove_columns = [
-                                     ft_constants.TEXT_COLUMN_NAMES[i] for i in
-                                     range(ft_constants[dataset_name].TEXT_COLUMN_AMOUNT)
-                                 ] + [ft_constants[dataset_name].LABEL_COLUMN_NAME]
-            else:
-                raise NotImplementedError(f'Unknown task config: {ft_constants[dataset_name]}')
-
-            if args.dataset.streaming:
-                dataset_split = dataset_split.map(
-                    function=preprocessing_function,
-                    batched=True,
-                    batch_size=args.optim.batch_size,
-                    remove_columns=remove_columns,
+        if args.downstream.benchmark_constants == 'ni':
+            final_datasets = dataset_splits
+        else:
+            ft_constants = GlueConstants() if args.downstream.benchmark_constants == 'glue' else DiscoEvalConstants()
+            logger.log_message(f'Fine-tuning constants: {ft_constants}')
+            # TODO: Add support for fine-tuning tasks on GLUE, SuperGLUE, DiscoEval, etc...
+            final_datasets = {}
+            dataset_name = args.downstream.benchmark_dataset
+            for split, dataset_split in dataset_splits.items():
+                logger.log_message('Tokenizing for T5 without merging examples')
+                preprocessing_function = data_utils.create_preprocess_function(
+                    dataset_info=ft_constants[dataset_name],
+                    dataset_name=dataset_name,
+                    tokenizer=tokenizer,
+                    args=args,
+                    logger=logger,
                 )
-            else:
-                dataset_split = dataset_split.map(
-                    function=preprocessing_function,
-                    batched=True,
-                    batch_size=args.optim.batch_size,
-                    remove_columns=remove_columns,
-                    num_proc=args.data.num_workers,
-                    desc=f'Tokenizing {split}',
-                )
-            # This is nessesary, in glue, the test set should not be shuffled.
-            if (
-                    args.downstream.benchmark_constants == constants.DownstreamDataset.GLUE and
-                    not split == constants.DatasetSplit.TEST.value
-            ):
-                if args.dataset.streaming:
-                    dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+                logger.log_message(f'preprocessing function: {preprocessing_function}')
+                if isinstance(ft_constants[dataset_name], TaskConfigOneInput):
+                    remove_columns = [
+                        ft_constants[dataset_name].TEXT_COLUMN_NAME,
+                        ft_constants[dataset_name].LABEL_COLUMN_NAME,
+                    ] + ['idx']
+                elif isinstance(ft_constants[dataset_name], TaskConfigTwoInput):
+                    remove_columns = [
+                        ft_constants[dataset_name].TEXT_COLUMN_NAME_1,
+                        ft_constants[dataset_name].TEXT_COLUMN_NAME_2,
+                        ft_constants[dataset_name].LABEL_COLUMN_NAME,
+                    ] + ['idx']
+                elif isinstance(ft_constants[dataset_name], DiscoEvalTaskConfig):
+                    remove_columns = [
+                                         ft_constants.TEXT_COLUMN_NAMES[i] for i in
+                                         range(ft_constants[dataset_name].TEXT_COLUMN_AMOUNT)
+                                     ] + [ft_constants[dataset_name].LABEL_COLUMN_NAME]
                 else:
-                    dataset_split = dataset_split.shuffle(seed=args.seed)
-            final_datasets[split] = dataset_split
+                    raise NotImplementedError(f'Unknown task config: {ft_constants[dataset_name]}')
+
+                if args.dataset.streaming:
+                    dataset_split = dataset_split.map(
+                        function=preprocessing_function,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        remove_columns=remove_columns,
+                    )
+                else:
+                    dataset_split = dataset_split.map(
+                        function=preprocessing_function,
+                        batched=True,
+                        batch_size=args.optim.batch_size,
+                        remove_columns=remove_columns,
+                        num_proc=args.data.num_workers,
+                        desc=f'Tokenizing {split}',
+                    )
+                # This is nessesary, in glue, the test set should not be shuffled.
+                if (
+                        args.downstream.benchmark_constants == constants.DownstreamDataset.GLUE and
+                        not split == constants.DatasetSplit.TEST.value
+                ):
+                    if args.dataset.streaming:
+                        dataset_split = dataset_split.shuffle(buffer_size=args.dataset.buffer_size, seed=args.seed)
+                    else:
+                        dataset_split = dataset_split.shuffle(seed=args.seed)
+                final_datasets[split] = dataset_split
 
     else:
         raise NotImplementedError
@@ -528,11 +541,26 @@ def get_data_collator(
                 decoder_start_token_id=tokenizer.pad_token_id,
             )
         else:
-            data_collator = transformers.DataCollatorForSeq2Seq(
-                tokenizer=tokenizer,
-                label_pad_token_id=tokenizer.pad_token_id,
-            )
-
+            if args.downstream.benchmark_constants == 'ni':
+                data_collator = data_collator_utils.DataCollatorForNI(
+                    tokenizer=tokenizer,
+                    padding="longest",
+                    max_source_length=512,
+                    max_target_length=128,
+                    label_pad_token_id=-100,
+                    pad_to_multiple_of=8,
+                    add_task_name=False,
+                    add_task_definition=True,
+                    num_pos_examples=2,
+                    num_neg_examples=0,
+                    add_explanation=False,
+                    tk_instruct=False,
+                )
+            else:
+                data_collator = transformers.DataCollatorForSeq2Seq(
+                    tokenizer=tokenizer,
+                    label_pad_token_id=tokenizer.pad_token_id,
+                )
     else:
         raise NotImplementedError(f'Unknown mode: {args.mode}')
 

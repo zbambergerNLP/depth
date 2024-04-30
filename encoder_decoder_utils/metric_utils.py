@@ -235,11 +235,7 @@ def compute_fine_tune_metrics(
         else:
             # In classification datasets (excluding STS-B), we remove the "unknown" label from the possible labels
             #  (the unknown label corresponds with the ID -1, whereas other labels start at 0).
-            try:
-                possible_labels -= {ft_constants[dataset].LABELS[-1]}
-            except KeyError:
-                pass
-
+            possible_labels -= {ft_constants[dataset].LABELS[-1]}
             if pred in label_to_id.keys():
                 predictions_converted.append(label_to_id[pred])
             else:
@@ -254,3 +250,26 @@ def compute_fine_tune_metrics(
         predictions=predictions_converted,
         references=labels_converted,
     )
+
+
+def compute_fine_tune_metrics_ni(
+        eval_preds: transformers.EvalPrediction,
+        metric: str = 'rouge',
+        tokenizer: transformers.PreTrainedTokenizer = None,
+):
+    metric_fn = evaluate.load(metric)
+    preds, labels = eval_preds
+    preds = np.where(labels != -100, preds, tokenizer.pad_token_id)
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+
+    decoded_pred = tokenizer.batch_decode(preds, skip_special_tokens=True)
+    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    eval_metric = metric_fn.compute(
+        predictions=decoded_pred,
+        references=decoded_labels,
+        use_stemmer=True,
+        use_aggregator=False,
+    )
+    rougeL = sum(eval_metric["rougeL"]) * 100 / len(eval_metric["rougeL"])
+    return {"rougeL": rougeL}

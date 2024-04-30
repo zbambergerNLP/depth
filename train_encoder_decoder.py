@@ -238,13 +238,14 @@ def main(dict_config: omegaconf.DictConfig):
     logger.log_message(f"Learning rate scheduler:\n{lr_scheduler}")
     optimizers = (None, None) if dict_config.deepspeed.use_deepspeed else (optimizer, lr_scheduler)
     # Each fine-tuning task has its own set of constants. We need to pass these constants to the compute_metrics
-    # function in order to compute the fine-tuning metrics. We will use the GLUE constants for the GLUE benchmark
+    # function in order to compute the fi ne-tuning metrics. We will use the GLUE constants for the GLUE benchmark
     # datasets, and the DiscoEval constants for the DiscoEval dataset.
-    ft_constants = (
-        glue_constants.GlueConstants() if
-        dict_config.downstream.benchmark_constants == constants.DownstreamDataset.GLUE.value else
-        disco_eval_constants.DiscoEvalConstants()
-    )
+    if dict_config.downstream.benchmark_constants == constants.DownstreamDataset.GLUE.value:
+        ft_constants = glue_constants.GlueConstants()
+    elif dict_config.downstream.benchmark_constants == constants.DownstreamDataset.DISCO_EVAL.value:
+        ft_constants = disco_eval_constants.DiscoEvalConstants()
+    else:
+        ft_constants = 'ni'
 
     assert not (dict_config.optim.total_steps == -1 and dict_config.optim.epochs == -1), (
         "Either total_steps or epochs should be set to -1, but not both."
@@ -352,8 +353,7 @@ def main(dict_config: omegaconf.DictConfig):
                     tokenizer=tokenizer,
                     ft_constants=ft_constants,
                 )
-            else:
-                # TODO: Use constants instead of literal strings
+            elif dict_config.downstream.benchmark_constants == constants.DownstreamDataset.DISCO_EVAL.value:
                 return metric_utils.compute_fine_tune_metrics(
                     eval_preds=eval_preds,
                     metric=constants.Metric.ACCURACY.value,
@@ -362,14 +362,24 @@ def main(dict_config: omegaconf.DictConfig):
                     tokenizer=tokenizer,
                     ft_constants=ft_constants,
                 )
+            else:
+                return metric_utils.compute_fine_tune_metrics_ni(
+                    eval_preds=eval_preds,
+                    tokenizer=tokenizer,
+                )
 
     # Initialize the Trainer
+    logger.log_message(f"dataset_splits: {dataset_splits}")
+    print(f"dataset_splits: {dataset_splits}")
     trainer = EncoderDecoderTrainer(
         model=model,
         args=training_arguments,
         train_dataset=dataset_splits[constants.DatasetSplit.TRAIN.value],
         eval_dataset=dataset_splits[
-            constants.DatasetSplit.TEST.value if dict_config.mode == constants.TrainingPhase.PT.value
+            constants.DatasetSplit.TEST.value if (
+                    dict_config.mode == constants.TrainingPhase.PT.value or
+                    dict_config.downstream.benchmark_constants == 'ni'
+            )
             else constants.DatasetSplit.VALIDATION.value
         ],
         tokenizer=tokenizer,
