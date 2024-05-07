@@ -37,17 +37,21 @@ class Experiment:
             model_implementation=self.model_implementation,
             checkpoint_path=dict_config.checkpoint.checkpoint_path,
         )
-        self.dataset = (
-            (
-                f"{dict_config.dataset.path.replace('/', ',')}_"
-                f"{dict_config.dataset.name.replace('/', ',')}"
-            ) if
-            dict_config.mode == constants.TrainingPhase.PT.value else
-            (
-                f"{dict_config.downstream.benchmark_constants.replace('/', ',')}_"
-                f"{dict_config.downstream.benchmark_dataset.replace('/', ',')}"
+
+        if dict_config.mode == constants.TrainingPhase.FT.value:  # Fine-tuning
+            if dict_config.downstream.benchmark_constants == 'ni':
+                self.dataset = f"{dict_config.downstream.benchmark_constants.replace('/', ',')}_"
+            else:  # GLUE or DiscoEval
+                self.dataset = (
+                    f"{dict_config.downstream.benchmark_constants.replace('/', ',')}_"
+                    f"{dict_config.downstream.benchmark_dataset.replace('/', ',')}"
+                )
+        else:  # Pre-training
+            self.dataset = (
+                f"{dict_config.dataset.path.replace('/', '_')}_"
+                f"{dict_config.dataset.name.replace('/', '_')}"
             )
-        )
+
         self.hparams = self._get_hparams(
             dict_config.optim.base_lr,
             dict_config.optim.lr_scheduler,

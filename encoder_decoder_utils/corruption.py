@@ -108,6 +108,7 @@ def shift_tokens_right(
     return shifted_input_ids
 
 
+# TODO: Vectorize this function.
 def merge_segments(
         offset: int,
         n_grams: int,
@@ -119,6 +120,10 @@ def merge_segments(
 ):
     """
     Merge segments of length n_grams into a single segment if they are in the ngrams_vocab_set.
+
+    NOTE: This function is meant for a new feature that masks spans of words in a sequence based on PMI.
+        This function is not yet integrated into the main codebase.
+
     Args:
         offset: The offset of the current segment in the whole sequence.
         n_grams: The length of the segment to merge.
@@ -143,6 +148,7 @@ def merge_segments(
         segments_to_merge.append(seg_inds)
 
 
+# TODO: Vectorize this function.
 def pmi_word_mask(
         input_tokens: List[str],
         pmi_vocab: Set[str],
@@ -151,13 +157,19 @@ def pmi_word_mask(
 ) -> List[int]:
     """
     Create a mask for PMI-based corruption for a sample.
+
     Initially, we map which tokens are part of the same word, and then we mask the entire word.
     Next, we mask ngrams that are in the ngrams_vocab_set, from 5 to 2 grams, while avoiding overlapping ngrams.
+
+    NOTE: This function is meant for a new feature that masks spans of words in a sequence based on PMI.
+        This function is not yet integrated into the main codebase.
+
     Args:
         input_tokens: A tensor of tokens.
         pmi_vocab: The set of ngrams to use for PMI-based corruption.
         max_predictions: The maximum number of tokens to mask.
         mlm_probability: The probability of masking a token.
+
     Returns:
         A list of 0/1 in the length of the input tokens, 1 means the token should be masked.
     """
@@ -251,6 +263,7 @@ def pmi_word_mask(
     return mask_labels
 
 
+# TODO: Vectorize this function.
 def pmi_noise_mask(
         examples: transformers.BatchEncoding,
         pmi_vocab: Set[str],
@@ -258,6 +271,9 @@ def pmi_noise_mask(
 ) -> np.ndarray:  # Size: [batch_size, input_length]
     """
     Create a mask for PMI-based corruption in encoder-decoder models (e.g., T5).
+
+    NOTE: This function is meant for a new feature that masks spans of words in a sequence based on PMI.
+        This function is not yet integrated into the main codebase.
 
     Args:
         examples: A BatchEncoding containing the input sequences, expected shape [batch_size, input_length].
@@ -695,6 +711,7 @@ def corrupt_for_vanilla_t5(
     return batch
 
 
+# TODO: Vectorize this function
 def create_depth_encoder_self_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         input_token_type_ids,  # An integer tensor of shape [batch_size, input_length]
@@ -751,6 +768,7 @@ def create_depth_encoder_self_attention_mask(
     return batch_encoder_self_attention_mask
 
 
+# TODO: Vectorize this function
 def create_depth_cross_attention_mask(
         input_ids: np.ndarray,  # An integer tensor of shape [batch_size, input_length]
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
@@ -807,6 +825,7 @@ def create_depth_cross_attention_mask(
     return batch_cross_attention_mask
 
 
+# TODO: Vectorize this function
 def create_depth_decoder_self_attention_mask(
         target_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
         target_token_type_ids: np.ndarray,  # An integer tensor of shape [batch_size, target_length]
@@ -1016,6 +1035,7 @@ def create_sentinel_ids_for_depth(
     return sentinel_ids
 
 
+# TODO: Vectorize this function
 def create_model_input_for_corrupted_batch(
         input_ids: np.array,
         input_ids_sentinel: np.array,
@@ -1160,6 +1180,8 @@ def shuffle_inputs(
         shuffled_token_type_ids += 1
     return shuffled_unique_indices, shuffled_lengths, shuffled_start_indices, shuffled_token_type_ids
 
+
+# TODO: Further decompose into smaller functions
 def corrupt_for_depth(
         examples: Union[Dict[str, np.ndarray], List[Dict[str, np.ndarray]], transformers.BatchEncoding],
         tokenizer: tokenizer_utils.DepthTokenizer,

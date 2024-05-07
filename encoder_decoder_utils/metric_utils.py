@@ -1,12 +1,35 @@
+import os
 import typing
 import nltk
 import numpy as np
 import torch
 import transformers
 import evaluate
+from rouge_score import rouge_scorer
 import random
 from encoder_decoder_utils import constants, tokenizer_utils
 from encoder_decoder_utils.constants import Metric
+
+
+def compute_rougeL(
+        predictions,
+        references,
+        rouge_types=["rougeL"],
+        use_stemmer=True,
+):
+    multi_ref = isinstance(references[0], list)
+    scorer = rouge_scorer.RougeScorer(rouge_types=rouge_types, use_stemmer=use_stemmer)
+    scores = []
+    for ref, pred in zip(references, predictions):
+        if multi_ref:
+            score = scorer.score_multi(ref, pred)
+        else:
+            score = scorer.score(ref, pred)
+        scores.append(score)
+    result = {}
+    for key in scores[0]:
+        result[key] = list(score[key].fmeasure for score in scores)
+    return result
 
 
 def postprocess_text(
@@ -25,6 +48,7 @@ def postprocess_text(
     preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
     labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
     return preds, labels
+
 
 # TODO: Add metrics specifically for DEPTH
 def compute_metrics_depth(
@@ -257,7 +281,6 @@ def compute_fine_tune_metrics_ni(
         metric: str = 'rouge',
         tokenizer: transformers.PreTrainedTokenizer = None,
 ):
-    metric_fn = evaluate.load(metric)
     preds, labels = eval_preds
     preds = np.where(labels != -100, preds, tokenizer.pad_token_id)
     labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
@@ -265,11 +288,10 @@ def compute_fine_tune_metrics_ni(
     decoded_pred = tokenizer.batch_decode(preds, skip_special_tokens=True)
     decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-    eval_metric = metric_fn.compute(
+    eval_metric = compute_rougeL(
         predictions=decoded_pred,
         references=decoded_labels,
         use_stemmer=True,
-        use_aggregator=False,
     )
     rougeL = sum(eval_metric["rougeL"]) * 100 / len(eval_metric["rougeL"])
     return {"rougeL": rougeL}

@@ -328,11 +328,13 @@ def main(dict_config: omegaconf.DictConfig):
         bf16=dict_config.precision == constants.NumericalPrecision.BF16.value,
 
         # Distributed training optimization
+        # split_batches=True,
+        dispatch_batches=False,
         ddp_find_unused_parameters=False,
         torch_compile=dict_config.model.compile,
         dataloader_num_workers=dict_config.data.num_workers,
         dataloader_pin_memory=True,
-        deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,
+        deepspeed="./zero_stage2_config.json" if dict_config.deepspeed.use_deepspeed else None,  # TODO: Pass in flag.
     )
 
     logger.log_message(f"Defining a metric function for {dict_config.mode} mode.")

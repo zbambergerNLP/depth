@@ -4,4 +4,5 @@
 /pmi
 /checkpoints
 encoder_decoder_utils/.pytest_cache
+/encoder_decoder_utils/data/
 download_dataset.py

@@ -5,7 +5,6 @@ import torch
 import numpy as np
 from dataclasses import dataclass
 import datasets
-from transformers import TrainingArguments, TrainerState, TrainerControl
 import string
 from encoder_decoder_utils import constants
 
@@ -136,6 +135,7 @@ class DEPTHDataCollator:
             decoder_start_token_id,
             seed: int = 42,
             sentence_shuffling_probability: float = 0.0,
+            sentence_loss_coefficient: float = 1.0,
             pmi: bool = False,
     ):
         """Initializes the data collator.
@@ -166,6 +166,8 @@ class DEPTHDataCollator:
         self.decoder_start_token_id = decoder_start_token_id
         self.sentence_shuffling_probability = sentence_shuffling_probability
         self.pmi = pmi
+        self.sentence_loss_coefficient = sentence_loss_coefficient
+        self.vocab_size = 32128
 
     def __call__(
             self,
@@ -210,6 +212,13 @@ class DEPTHDataCollator:
             pmi=self.pmi,
             do_shuffle=do_shuffle,
         )
+
+        # Create a vector of size [vocab_size], where each float value represents the weight of the corresponding token
+        # in the vocabulary when computing the loss.
+        sentence_token_ids = self.tokenizer.get_sentence_token_ids()
+        loss_weights = torch.zeros(self.vocab_size)
+        loss_weights[sentence_token_ids] = 1.0
+
         return transformers.BatchEncoding(
             {
                 constants.DepthDataCollatorConstants.INPUT_IDS: torch.tensor(
@@ -239,6 +248,11 @@ class DEPTHDataCollator:
                 constants.DepthDataCollatorConstants.IS_SHUFFLED: torch.tensor(
                     batch[constants.DepthDataCollatorConstants.IS_SHUFFLED],
                     dtype=torch.bool,
+                ),
+                constants.DepthDataCollatorConstants.LOSS_WEIGHTS: loss_weights,
+                constants.DepthDataCollatorConstants.SENTENCE_LOSS_COEFFICIENT: torch.tensor(
+                    self.sentence_loss_coefficient,
+                    dtype=torch.float32
                 ),
                 # TODO: Add "length" (number of tokens in input and target) to the batch encoding, and add support for
                 #  it within the trainer class (i.e., log statistics about the length of the input and target
@@ -356,7 +370,7 @@ class DEPTHDataCollatorFineTuning:
         # Convert to tensors and return
         return transformers.BatchEncoding(
             {
-                constants.DepthDataCollatorConstants.INPUT_IDS:input_ids,
+                constants.DepthDataCollatorConstants.INPUT_IDS: input_ids,
                 constants.DepthDataCollatorConstants.LABELS: labels,
                 constants.DepthDataCollatorConstants.TARGET_IDS: target_ids,
                 constants.DepthDataCollatorConstants.ENCODER_ATTENTION_MASK: encoder_attention_mask,
@@ -365,6 +379,9 @@ class DEPTHDataCollatorFineTuning:
             }
         )
 
+
+# TODO: Decompose the logic of __call__ into smaller functions.
+# TODO: Shift to using the constants in the constants module.
 @dataclass
 class DataCollatorForNI:
     tokenizer = None
@@ -412,6 +429,7 @@ class DataCollatorForNI:
         self.add_explanation = add_explanation
         self.tk_instruct = tk_instruct
         self.text_only = text_only
+        self.is_depth = isinstance(self.tokenizer, tokenizer_utils.DepthTokenizer)
 
     def __call__(self, batch, return_tensors=None):
 
@@ -523,17 +541,18 @@ class DataCollatorForNI:
                         pos_example_str += "."
                     pos_example_str += "\n"
                 pos_example_str += "\n"
-                if (
-                    len(
-                        self.tokenizer(
-                            definition
-                            + " ".join(pos_examples)
-                            + pos_example_str
-                            + task_input
-                        )["input_ids"]
-                    )
-                    <= self.max_source_length
-                ):
+
+                prefix_len_pos = len(
+                    self.tokenizer(
+                        definition
+                        + " ".join(pos_examples)
+                        + pos_example_str
+                        + task_input,
+                        max_length=self.max_source_length,
+                    )["input_ids"]
+                )
+
+                if prefix_len_pos < self.max_source_length:
                     pos_examples.append(pos_example_str)
                 else:
                     break
@@ -567,10 +586,11 @@ class DataCollatorForNI:
                             + " ".join(pos_examples)
                             + " ".join(neg_examples)
                             + neg_example_str
-                            + task_input
+                            + task_input,
+                            max_length=self.max_source_length,
                         )["input_ids"]
                     )
-                    <= self.max_source_length
+                    < self.max_source_length
                 ):
                     neg_examples.append(neg_example_str)
                 else:
@@ -583,7 +603,21 @@ class DataCollatorForNI:
                 + "".join(neg_examples)
                 + task_input
             )
-            tokenized_source = self.tokenizer(source)["input_ids"]
+            if self.is_depth:
+                tokenized_source = self.tokenizer(
+                    source,
+                    padding=constants.PaddingConstants.MAX_LENGTH.value,
+                    max_length=self.max_source_length,
+                    truncation=True,
+                    randomize_sentence_token_ids=False,
+                )[constants.DepthDataCollatorConstants.INPUT_IDS]
+            else:
+                tokenized_source = self.tokenizer(
+                    source,
+                    padding=constants.PaddingConstants.MAX_LENGTH.value if self.is_depth else self.padding,
+                    max_length=self.max_source_length,
+                    truncation=True,
+                )[constants.DepthDataCollatorConstants.INPUT_IDS]
             if len(tokenized_source) <= self.max_source_length:
                 sources.append(source)
             else:
@@ -597,14 +631,40 @@ class DataCollatorForNI:
         if self.text_only:
             model_inputs = {"inputs": sources}
         else:
-            model_inputs = self.tokenizer(
-                sources,
-                max_length=self.max_source_length,
-                padding=self.padding,
-                return_tensors=self.return_tensors,
-                truncation=True,
-                pad_to_multiple_of=self.pad_to_multiple_of,
-            )
+            if self.is_depth:
+                model_inputs = {}
+                input_encoding = self.tokenizer(
+                    sources,
+                    padding=constants.PaddingConstants.MAX_LENGTH.value,
+                    max_length=self.max_source_length,
+                    truncation=True,
+                    return_tensors=self.return_tensors,
+                    pad_to_multiple_of=self.pad_to_multiple_of,
+                )
+
+                input_ids = np.array(input_encoding["input_ids"])
+                token_type_ids = np.array(input_encoding["token_type_ids"])
+                model_inputs[constants.DepthDataCollatorConstants.INPUT_IDS] = torch.tensor(input_ids)
+
+                encoder_attention_mask = torch.tensor(
+                    create_depth_encoder_self_attention_mask(
+                        input_ids=input_ids,
+                        input_token_type_ids=token_type_ids,
+                        tokenizer=self.tokenizer,
+                        sentence_token_ids=self.tokenizer.get_sentence_token_and_eosen_ids()
+                    )
+                )
+                model_inputs[constants.DepthDataCollatorConstants.ENCODER_ATTENTION_MASK] = encoder_attention_mask
+
+            else:
+                model_inputs = self.tokenizer(
+                    sources,
+                    max_length=self.max_source_length,
+                    padding=self.padding,
+                    return_tensors=self.return_tensors,
+                    truncation=True,
+                    pad_to_multiple_of=self.pad_to_multiple_of,
+                )
 
         if "output" in batch[0]["Instance"] and batch[0]["Instance"]["output"]:
             # Randomly select one reference if multiple are provided.
@@ -612,18 +672,52 @@ class DataCollatorForNI:
             if self.text_only:
                 model_inputs["labels"] = labels
             else:
-                labels = self.tokenizer(
-                    labels,
-                    max_length=self.max_target_length,
-                    padding=self.padding,
-                    return_tensors=self.return_tensors,
-                    truncation=True,
-                    pad_to_multiple_of=self.pad_to_multiple_of,
-                )
-                label_mask = labels["attention_mask"].bool()
-                model_inputs["labels"] = labels["input_ids"].masked_fill(
-                    ~label_mask, self.label_pad_token_id
-                )
+                if self.is_depth:
+                    labels = self.tokenizer.batch_encode_plus(
+                        labels,
+                        padding=constants.PaddingConstants.MAX_LENGTH.value,
+                        max_length=self.max_target_length,
+                        truncation=True,
+                        return_tensors=self.return_tensors,
+                        pad_to_multiple_of=self.pad_to_multiple_of,
+                    )
+                    labels = np.array(labels[constants.DepthDataCollatorConstants.INPUT_IDS])
+                    model_inputs[constants.DepthDataCollatorConstants.LABELS] = torch.tensor(labels)
+                    decoder_attention_mask = torch.tril(
+                        torch.ones(
+                            (
+                                len(labels),
+                                self.max_target_length,
+                                self.max_target_length
+                            ),
+                            dtype=torch.int8,
+                        )
+                    )
+                    model_inputs[constants.DepthDataCollatorConstants.DECODER_ATTENTION_MASK] = decoder_attention_mask
+                    cross_attention_mask = torch.ones(
+                        (
+                            len(labels),                # batch size
+                            self.max_target_length,     # query length (decoder sequence length)
+                            self.max_source_length      # key length   (encoder sequence length)
+                        ),
+                        dtype=torch.int8,
+                    )
+                    model_inputs[constants.DepthDataCollatorConstants.CROSS_ATTENTION_MASK] = cross_attention_mask
+
+                else:
+                    labels = self.tokenizer(
+                        labels,
+                        max_length=self.max_target_length,
+                        padding=self.padding,
+                        return_tensors=self.return_tensors,
+                        truncation=True,
+                        pad_to_multiple_of=self.pad_to_multiple_of,
+                    )
+                    label_mask = labels["attention_mask"].bool()
+                    model_inputs["labels"] = labels["input_ids"].masked_fill(
+                        ~label_mask, self.label_pad_token_id
+                    )
+
         else:
             model_inputs["labels"] = None
 

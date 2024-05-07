@@ -216,7 +216,6 @@ class DepthTokenizer(T5TokenizerFast):
     def end_of_sentence_token_id(self):
         return self.convert_tokens_to_ids(self.end_of_sentence_token)
 
-
     def add_sentence_tokens_to_text(
             self,
             sentences: str,

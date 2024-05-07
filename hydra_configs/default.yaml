@@ -6,6 +6,9 @@ defaults:
 # The category of experiment to run. Options are 'pt' (for pre-training) and 'ft' (for fine-tuning)
 mode: 'pt'
 
+# Whether to run the experiment in debug mode. If true, the model will only train for a few steps.
+debug: false
+
 # The device used for training. Options are 'cpu' and 'gpu'.
 device: gpu
 
@@ -65,7 +68,7 @@ dataset:
 
   # The name of the dataset to use. These correspond with the datasets available in the HuggingFace datasets library.
   # Examples include C4, The Pile, etc...
-  path: 'c4'
+  path: 'allenai/c4'
 
   # The partition of the dataset to use. For example, if using the C4 dataset, we may want to specify the 'en' partition
   # to only use the English portion of the dataset.
@@ -125,6 +128,10 @@ data:
   # The probability of shuffling sentences in each example within the batch. For example, if set to 0.5, 50% of the
   # batches will have their examples' sentences shuffled.
   sentence_shuffling_probability: 0.5
+
+  # The weight of the sentence loss in the total loss. For example, if set to 1.0, the sentence loss will be weighted
+  # equally to the span-corruption loss.
+  sentence_loss_coefficient: 1.0
 
 # TODO: Incorporate the 'downstream' section into the 'datasets' section
 downstream:

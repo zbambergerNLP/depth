@@ -213,5 +213,6 @@ class MyTestCase(parameterized.TestCase):
                     f'actual: {batch_encodings[constants.DEPTHTokenizerConstants.INPUT_LENGTH]}'
         )
 
+
 if __name__ == '__main__':
     unittest.main()

@@ -11,7 +11,7 @@
 
 #SBATCH -A nlp
 #SBATCH -p nlp
-#SBATCH -w nlp-ada-[1,2]
+#SBATCH -w nlp-ada-1,nlp-ada-2,nlp-a40-1
 
 #SBATCH -o fine_tuning_runs/slurm_%N_%j_out.txt      # stdout goes here
 #SBATCH -e fine_tuning_runs/slurm_%N_%j_err.txt      # stderr goes here
@@ -33,20 +33,20 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 # Use a from-scratch pre-trained T5 model
 
 
-# Use a continuously pre-trained T5 model
+# Use a from-scratch pre-trained T5 model
 deepspeed \
 --no_local_rank \
---master_port=12342 \
---num_gpus=8 \
+--master_port=11002 \
+--num_gpus=2 \
 train_encoder_decoder.py \
 mode=ft \
-num_gpus=8 \
+num_gpus=2 \
 num_cpus=32 \
 precision=bf16 \
 model.model_implementation=hf_t5 \
 model.compile=false \
 data.input_length=512 \
-data.target_length=8 \
+data.target_length=16 \
 data.num_workers=32 \
 data.data_collator=custom_t5 \
 downstream.benchmark_constants=glue \
@@ -54,45 +54,49 @@ downstream.benchmark_dataset=cola \
 dataset.streaming=false \
 optim.name=adamw_torch \
 optim.base_lr=1e-4 \
-optim.batch_size=32 \
-optim.total_steps=4_000 \
-optim.warmup_steps=100 \
+optim.batch_size=16 \
+optim.total_steps=3_000 \
+optim.warmup_steps=300 \
 optim.grad_acc=1 \
-optim.lr_scheduler=linear \
-checkpoint.checkpoint_path=checkpoints/pre_train/from_pretrained/hf_t5/c4_en/lr_0_0001_linear_bsz_256_shuffle_p_0_5/2024-03-05_01-04/checkpoint-1/ \
+optim.lr_scheduler=constant_with_warmup \
+checkpoint.checkpoint_path=checkpoints/pre_train/from_pretrained/hf_t5/allenai/c4_en/lr_0_0001_inverse_sqrt_bsz_200_shuffle_p_0_5/2024-04-03_20-31/checkpoint-128000 \
 checkpoint.resume=false \
-checkpoint.every_steps=1_000 \
+checkpoint.every_steps=4_000 \
 checkpoint.save_total_limit=3 \
 logging.every_steps=10 \
 logging.wandb=true \
 evaluate.every_steps=100
 
 
-
-
+# Baseline
 #deepspeed \
 #--no_local_rank \
-#--master_port=12342 \
-#--num_gpus=4 \
+#--master_port=11202 \
+#--num_gpus=2 \
 #train_encoder_decoder.py \
 #mode=ft \
-#num_gpus=4 \
+#num_gpus=2 \
 #num_cpus=32 \
 #precision=bf16 \
-#model.model_implementation=depth \
-#deepspeed.use_deepspeed=true \
-#logging.wandb=true \
+#model.model_implementation=hf_t5 \
 #model.compile=false \
-#data.input_length=256 \
-#data.target_length=8 \
-#data.data_collator=depth \
-#optim.total_steps=4_000 \
-#optim.base_lr=1e-5 \
-#optim.batch_size=128 \
-#optim.grad_acc=1 \
-#evaluate.every_steps=100 \
-#logging.every_steps=10 \
-#checkpoint.every_steps=1000 \
-#checkpoint.checkpoint_path=checkpoints/depth/from_pretrained/lr_0_001/batch_size_256/2024-02-18_12-45 \
+#data.input_length=512 \
+#data.target_length=16 \
+#data.num_workers=32 \
+#data.data_collator=custom_t5 \
+#downstream.benchmark_constants=glue \
 #downstream.benchmark_dataset=cola \
-#optim.lr_scheduler=linear
+#dataset.streaming=false \
+#optim.name=adamw_torch \
+#optim.base_lr=1e-5 \
+#optim.batch_size=16 \
+#optim.total_steps=3_000 \
+#optim.warmup_steps=100 \
+#optim.grad_acc=1 \
+#optim.lr_scheduler=linear \
+#checkpoint.resume=false \
+#checkpoint.every_steps=4_000 \
+#checkpoint.save_total_limit=3 \
+#logging.every_steps=10 \
+#logging.wandb=true \
+#evaluate.every_steps=100

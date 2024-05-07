@@ -64,6 +64,8 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
             output_attentions: Optional[bool] = None,
             output_hidden_states: Optional[bool] = None,
             return_dict: Optional[bool] = None,
+            loss_weights: Optional[torch.FloatTensor] = None,
+            sentence_loss_coefficient: Optional[float] = 1.0,
     ) -> typing.Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         """
         Perform the forward pass of T5 model for generation.
@@ -99,6 +101,10 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         :param output_hidden_states: A boolean indicating whether to return the hidden states.
         :param return_dict: A boolean indicating whether to return a ModelOutput instead of a plain tuple. True
             indicates that a ModelOutput should be returned. False indicates that a tuple should be returned.
+        :param loss_weights: A tensor of shape [vocab_size] with boolean float values for the loss weights. If None,
+            all values are set to 1.
+        :param sentence_loss_coefficient: A float value indicating the coefficient for the sentence loss. If None,
+            the default value (1, corresponding to equal weight with reconstruction loss) is used.
 
         :return: A Seq2SeqLMOutput containing the outputs of the forward pass (i.e., the logits, loss, etc...)
         """
@@ -185,11 +191,53 @@ class DepthForConditionalGeneration(T5ForConditionalGeneration):
         sequence_losses = None
         loss = None
         if labels is not None:
+
+            # The code below is used in order to assign different weights to the sentence loss and the reconstruction
+            # loss. This is useful when orienting the model to prioritize one of the two objectives over the other.
+            # TODO: Create a control flow (starting from flags) which controls whether to do this kind of special
+            #  loss weighting or not. If the user decides not to use special loss weights, the code should default to
+            #  an equal weighting of losses on all tokens.
+            # if loss_weights is not None:
+            #     sentence_loss_fct = CrossEntropyLoss(
+            #         ignore_index=-100,
+            #         reduction='none',
+            #         weight=loss_weights,
+            #     )
+            #     reconstruction_loss_fct = CrossEntropyLoss(
+            #         ignore_index=-100,
+            #         reduction='none',
+            #         weight=(1-loss_weights),
+            #     )
+            #     sentence_loss = sentence_loss_fct(
+            #         lm_logits.view(-1, lm_logits.size(-1)),
+            #         labels.view(-1),
+            #     ).reshape(labels.shape)
+            #     reconstruction_loss = reconstruction_loss_fct(
+            #         lm_logits.view(-1, lm_logits.size(-1)),
+            #         labels.view(-1),
+            #     ).reshape(labels.shape)
+            #     loss = sentence_loss_coefficient * sentence_loss.mean() + reconstruction_loss.mean()
+            #     sequence_losses = sentence_loss_coefficient * sentence_loss + reconstruction_loss
+            #
+            # else:
+            #     loss_fct = CrossEntropyLoss(ignore_index=-100, reduction='none')
+            #     # move labels to correct device to enable PP
+            #     labels = labels.to(lm_logits.device)
+            #     sequence_losses = loss_fct(
+            #         lm_logits.view(-1, lm_logits.size(-1)),  # (bsz * tgt_len, vocab_size)
+            #         labels.view(-1)                          # (bsz * tgt_len)
+            #     ).reshape(labels.shape)
+            #
+            #     is_padding = labels.eq(-100)
+            #     loss = sequence_losses[~is_padding].mean()
+
             loss_fct = CrossEntropyLoss(ignore_index=-100, reduction='none')
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
-            sequence_losses = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1)).reshape(labels.shape)
-
+            sequence_losses = loss_fct(
+                lm_logits.view(-1, lm_logits.size(-1)),  # (bsz * tgt_len, vocab_size)
+                labels.view(-1)  # (bsz * tgt_len)
+            ).reshape(labels.shape)
             is_padding = labels.eq(-100)
             loss = sequence_losses[~is_padding].mean()
 

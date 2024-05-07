@@ -3,7 +3,14 @@ import enum
 import typing
 
 
-TRUSTED_DATASETS = {'c4', 'wikipedia', 'bookcorupus', 'wikitext', 'togethercomputer/RedPajama-Data-V2'}
+TRUSTED_DATASETS = {
+    'c4',
+    'wikipedia',
+    'bookcorupus',
+    'wikitext',
+    'togethercomputer/RedPajama-Data-V2',
+}
+
 
 class MonitoringPlatform(enum.Enum):
     """Monitoring platform."""
@@ -22,15 +29,18 @@ class TrainingPhase(enum.Enum):
     FT = "ft"
     PT = "pt"
 
+
 class ReturnTensor(enum.Enum):
     """Return tensor."""
     PT = "pt"
     NP = "np"
 
+
 class NumericalPrecision(enum.Enum):
     """Numerical precision."""
     FP32 = "fp32"
     BF16 = "bf16"
+
 
 class PaddingConstants(enum.Enum):
     """Padding constants."""
@@ -238,6 +248,9 @@ class DepthDataCollatorConstants(T5DataCollatorConstants):
 
     SENTENCE_SHUFFLING_PROBABILITY: str = 'sentence_shuffling_probability'
 
+    LOSS_WEIGHTS: str = 'loss_weights'
+    SENTENCE_LOSS_COEFFICIENT: str = 'sentence_loss_coefficient'
+
     # Outputs
     IS_SHUFFLED: str = 'is_shuffled'
 
@@ -254,8 +267,7 @@ class T5TokenizerConstants(TokenizerConstants):
     ADDITIONAL_SPECIAL_TOKENS: str = 'additional_special_tokens'
 
 
-#TODO: Add a UL2 tokenizer class.
-
+# TODO: Add a UL2 tokenizer class.
 class DEPTHTokenizerConstants(T5TokenizerConstants):
     SENTENCE_TOKEN: str = "SENT"
     SENT: str = "sent"
@@ -295,11 +307,11 @@ class OptimizerConstants:
 class SchedulerConstants:
     NO_DECAY: typing.Tuple[str] = ("bias", "LayerNorm", "layernorm", "layer_norm", "ln")
 
+
 @dataclasses.dataclass(frozen=True)
 class GLUEConstants:
     ID = 'id'
     LABEL = 'label'
-
 
     # Dataset names
     COLA: str = 'cola'
@@ -316,6 +328,7 @@ class GLUEConstants:
     # Types of MNLI datasets
     MATCHED: str = 'matched'
     MISMATCHED: str = 'mismatched'
+
 
 @dataclasses.dataclass(frozen=True)
 class UnitTestConstants:

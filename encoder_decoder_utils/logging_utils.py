@@ -86,7 +86,6 @@ class Logger:
                 args.neptune_id = neptune_logger["sys/id"].fetch()
         return neptune_logger
 
-
     def setup_wandb(self, args: omegaconf.DictConfig) -> typing.Union[wandb.sdk.wandb_run.Run, None]:
         """
         Setup the wandb logger.

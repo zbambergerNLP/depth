@@ -1,6 +1,9 @@
 # DEPTH: Discourse Education through Pre-Training Hierarchically
 
 ## Overview
+
+**NOTE**: This README is pending an update to reflect the latest changes in the repository.
+
 DEPTH (Discourse Education through Pre-Training Hierarchically) is an encoder-decoder model enhancing natural language processing capabilities, particularly in discourse comprehension, coherence, and compositionality. It is designed to extend the pre-training objective "Sentence Un-shuffling" to encoder-decoder models, offering advanced semantic and discourse-level representations. DEPTH supports flexible configurations for from-scratch and continuous pre-training.
 
 ## Environment Setup

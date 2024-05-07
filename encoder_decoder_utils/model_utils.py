@@ -204,6 +204,7 @@ def load_dataset_splits(
         dataset = datasets.load_dataset(
             path=args.dataset.path,
             name=args.dataset.name,
+            data_files="en/c4-train.00001-of-01024.json.gz" if args.debug else None,
             streaming=args.dataset.streaming,
             trust_remote_code=args.dataset.path in constants.TRUSTED_DATASETS,
         )
@@ -348,7 +349,6 @@ def process_dataset(
                         desc=f'Tokenizing {split}',
                     )
 
-            # TODO: Add support for DEPTH tokenizer
             elif args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
                 logger.log_message('Tokenizing for DEPTH without merging examples')
 
@@ -381,6 +381,15 @@ def process_dataset(
             else:
                 logger.log_message('Tokenizing for T5 without merging examples')
                 if args.dataset.streaming:
+                    # # Chunk the examples into smaller pieces
+                    # dataset_split = dataset_split.map(
+                    #     function=data_utils.chunk_examples,
+                    #     batched=True,
+                    #     fn_kwargs={
+                    #         'chunk_size': 512,
+                    #     },
+                    #     remove_columns=dataset_split.column_names,
+                    # )
                     dataset_split = dataset_split.map(
                         function=data_utils.tokenizer_function_t5_pre_training,
                         batched=True,
@@ -395,7 +404,7 @@ def process_dataset(
                     dataset_split = dataset_split.map(
                         function=data_utils.tokenizer_function_t5_pre_training,
                         batched=True,
-                        batch_size=args.optim.batch_size,
+                        # batch_size=args.optim.batch_size,
                         fn_kwargs={
                             constants.T5TokenizerConstants.TOKENIZER: tokenizer,
                             constants.T5TokenizerConstants.IN_LENGTH: args.data.input_length,
@@ -489,6 +498,8 @@ def get_data_collator(
 ) -> typing.Union[
     data_collator_utils.T5DataCollator,
     data_collator_utils.DEPTHDataCollator,
+    data_collator_utils.DataCollatorForNI,
+    transformers.DataCollatorForSeq2Seq,
 ]:
     """
     Get the data collator. This is used to collate the data into batches.
@@ -504,7 +515,11 @@ def get_data_collator(
 
     if args.mode == constants.TrainingPhase.PT.value:
         if args.data.data_collator == 'custom_t5':  # TODO: Make this a constant
-            logger.log_message('Using custom T5 data collator')
+            logger.log_message(
+                'Using custom T5 data collator with hyperparameters:\n'
+                f'\tnoise_density: {args.data.mlm_probability}\n'
+                f'\tmean_noise_span_length: {args.data.mean_noise_span_length}'
+            )
             data_collator = data_collator_utils.T5DataCollator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
@@ -516,7 +531,13 @@ def get_data_collator(
             )
 
         elif args.data.data_collator == constants.ModelImplementation.DEPTH.value:
-            logger.log_message('Using custom DEPTH data collator')
+            logger.log_message(
+                'Using custom DEPTH data collator with hyperparameters:\n'
+                f'\tnoise_density: {args.data.mlm_probability}\n'
+                f'\tmean_noise_span_length: {args.data.mean_noise_span_length}\n'
+                f'\tsentence_shuffling_probability: {args.data.sentence_shuffling_probability}\n'
+                f'\tsentence_loss_coefficient: {args.data.sentence_loss_coefficient}'
+            )
             data_collator = data_collator_utils.DEPTHDataCollator(
                 tokenizer=tokenizer,
                 noise_density=args.data.mlm_probability,
@@ -526,35 +547,36 @@ def get_data_collator(
                 pad_token_id=target_length,
                 decoder_start_token_id=tokenizer.pad_token_id,
                 sentence_shuffling_probability=args.data.sentence_shuffling_probability,
+                sentence_loss_coefficient=args.data.sentence_loss_coefficient,
             )
         else:
             raise NotImplementedError(f'Unknown data collator: {args.data.data_collator}')
 
     elif args.mode == constants.TrainingPhase.FT.value:
         logger.log_message('Using HuggingFace data collator')
-        if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
-            data_collator = data_collator_utils.DEPTHDataCollatorFineTuning(
+        if args.downstream.benchmark_constants == 'ni':
+            data_collator = data_collator_utils.DataCollatorForNI(
                 tokenizer=tokenizer,
-                input_length=args.data.input_length,
-                target_length=args.data.target_length,
-                pad_token_id=tokenizer.pad_token_id,
-                decoder_start_token_id=tokenizer.pad_token_id,
+                padding="longest",
+                max_source_length=512,
+                max_target_length=128,
+                label_pad_token_id=-100,
+                pad_to_multiple_of=8,
+                add_task_name=False,
+                add_task_definition=True,
+                num_pos_examples=2,
+                num_neg_examples=0,
+                add_explanation=False,
+                tk_instruct=False,
             )
         else:
-            if args.downstream.benchmark_constants == 'ni':
-                data_collator = data_collator_utils.DataCollatorForNI(
+            if args.model.model_implementation == constants.ModelImplementation.DEPTH.value:
+                data_collator = data_collator_utils.DEPTHDataCollatorFineTuning(
                     tokenizer=tokenizer,
-                    padding="longest",
-                    max_source_length=512,
-                    max_target_length=128,
-                    label_pad_token_id=-100,
-                    pad_to_multiple_of=8,
-                    add_task_name=False,
-                    add_task_definition=True,
-                    num_pos_examples=2,
-                    num_neg_examples=0,
-                    add_explanation=False,
-                    tk_instruct=False,
+                    input_length=args.data.input_length,
+                    target_length=args.data.target_length,
+                    pad_token_id=tokenizer.pad_token_id,
+                    decoder_start_token_id=tokenizer.pad_token_id,
                 )
             else:
                 data_collator = transformers.DataCollatorForSeq2Seq(

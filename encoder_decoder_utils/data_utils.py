@@ -1,14 +1,8 @@
 from __future__ import annotations
-
 import typing
 from transformers import BatchEncoding
 
-# TODO: Add the following imports to the top of the file in order to allow fine-tuning in addition to pre-training.
-
-
 from fine_tune_constants import glue_constants, disco_eval_constants
-
-disco_eval_constants_instance = disco_eval_constants.DiscoEvalConstants()
 from fine_tune_constants.glue_constants import GlueConstants
 import numpy as np
 from typing import Dict, Callable, Any
@@ -19,12 +13,33 @@ from encoder_decoder_utils.constants import (
 )
 from encoder_decoder_utils import tokenizer_utils, constants
 
+disco_eval_constants_instance = disco_eval_constants.DiscoEvalConstants()
+
+
+def chunk_examples(
+        examples: typing.Dict[str, typing.List[str]],
+        chunk_size: int = 512,
+) -> typing.Dict[str, typing.List[str]]:
+    """
+    Tokenize an example and split it into chunks acceptable for the model.
+    :param examples: The example to tokenize and split into chunks. A dictionary containing the text to be tokenized.
+    :param chunk_size: The size of the chunks to split the text into.
+    :return: A modified dictionary containing the text split into chunks. The key for the text in the incoming
+        dictionary and in the output dictionary is 'text'.
+    """
+    chunks = []
+    for text in examples['text']:
+        words = text.split()
+        for i in range(0, len(words), chunk_size):
+            chunks.append(' '.join(words[i:i + chunk_size]))
+    return {'text': chunks}
+
 
 def tokenize_function(
         examples: typing.Dict[str, typing.Any],
         tokenizer: transformers.PreTrainedTokenizer,
         in_length: int,
-) -> Dict[str, np.ndarray]:
+) -> typing.Dict[str, np.ndarray]:
     """
     Tokenizes batches of examples for pre-training a T5 model with merging.
 
@@ -45,6 +60,7 @@ def tokenize_function(
     tokenizer_out = tokenizer(
         text=examples["text"],
         return_attention_mask=False,
+        return_tensors="np",
     )
 
     input_ids = tokenizer_out[TokenizerConstants.INPUT_IDS]
@@ -160,14 +176,22 @@ def preprocess_function_n_inputs(
             additional interventions).
     """
 
-    outputs = [label_names[str(example)] for example in examples[label_column_name]]
+    outputs = [
+        label_names[str(example)]
+        for example in examples[label_column_name]
+    ]
     examples.pop(label_column_name)
     examples_values = dict(examples).values()  # takes the values for each text column of the dataset
     transposed_values = list(zip(*examples_values))  # transposes a matrix (list of lists)
-    inputs = [[f"{disco_eval_constants_instance.TEXT_COLUMN_NAMES[i]}: {sent}" for i, sent in enumerate(example)] for
-              example in transposed_values]
-    inputs = ["\t".join(exmple) for exmple in inputs]
-    inputs = [f"{task_name}: {exmple}" for exmple in inputs]
+    inputs = [
+        [
+            f"{disco_eval_constants_instance.TEXT_COLUMN_NAMES[i]}: {sent}"
+            for i, sent in enumerate(example)
+        ]
+        for example in transposed_values
+    ]
+    inputs = ["\t".join(example) for example in inputs]
+    inputs = [f"{task_name}: {example}" for example in inputs]
 
     results = {}
     if isinstance(tokenizer, tokenizer_utils.DepthTokenizer):
@@ -245,7 +269,7 @@ def preprocess_function_one_input(
             randomize_sentence_token_ids=False,
         )
         results[TokenizerConstants.TOKEN_TYPE_IDS] = np.array(encoding.token_type_ids)
-    else: # T5Tokenizer
+    else:  # T5Tokenizer
         encoding = tokenizer(
             inputs,
             padding=constants.PaddingConstants.MAX_LENGTH.value,
